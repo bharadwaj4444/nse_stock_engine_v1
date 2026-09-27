@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: nse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nse_stocks
+      POSTGRES_USER: nse
+      POSTGRES_PASSWORD: nse
+    ports:
+      - "5432:5432"
+    volumes:
+      - nse_pgdata:/var/lib/postgresql/data
+
+volumes:
+  nse_pgdata:

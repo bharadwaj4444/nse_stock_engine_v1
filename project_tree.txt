@@ -1,0 +1,880 @@
+Folder PATH listing
+Volume serial number is E6A8-F025
+C:.
+|   .env
+|   .env.example
+|   .gitignore
+|   alembic.ini
+|   docker-compose.yml
+|   integrated-filling-csp.js
+|   nse_test.html
+|   project_tree.txt
+|   pyproject.toml
+|   README.md
+|   run_api.py
+|   script_urls.txt
+|   
++---alembic
+|   |   env.py
+|   |   script.py.mako
+|   |   
+|   +---versions
+|   |   |   0001_initial.py
+|   |   |   0002_financials.py
+|   |   |   
+|   |   \---__pycache__
+|   |           0001_initial.cpython-314.pyc
+|   |           0002_financials.cpython-314.pyc
+|   |           
+|   \---__pycache__
+|           env.cpython-314.pyc
+|           
++---app
+|   |   api.py
+|   |   cli.py
+|   |   config.py
+|   |   db.py
+|   |   indicators.py
+|   |   ingest.py
+|   |   main.py
+|   |   models.py
+|   |   pipeline.py
+|   |   __init__.py
+|   |   
+|   +---sources
+|   |   |   nse.py
+|   |   |   __init__.py
+|   |   |   
+|   |   \---__pycache__
+|   |           nse.cpython-314.pyc
+|   |           __init__.cpython-314.pyc
+|   |           
+|   \---__pycache__
+|           cli.cpython-314.pyc
+|           config.cpython-314.pyc
+|           db.cpython-314.pyc
+|           indicators.cpython-314.pyc
+|           ingest.cpython-314.pyc
+|           models.cpython-314.pyc
+|           pipeline.cpython-314.pyc
+|           __init__.cpython-314.pyc
+|           
++---data
+|   \---raw
+|       \---nse
+|           \---cm
+|               +---2025
+|               |   +---09
+|               |   |   +---26
+|               |   |   |       BhavCopy_20250926.csv.zip
+|               |   |   |       
+|               |   |   +---29
+|               |   |   |       BhavCopy_20250929.csv.zip
+|               |   |   |       
+|               |   |   \---30
+|               |   |           BhavCopy_20250930.csv.zip
+|               |   |           
+|               |   +---10
+|               |   |   +---01
+|               |   |   |       BhavCopy_20251001.csv.zip
+|               |   |   |       
+|               |   |   +---02
+|               |   |   +---03
+|               |   |   |       BhavCopy_20251003.csv.zip
+|               |   |   |       
+|               |   |   +---06
+|               |   |   |       BhavCopy_20251006.csv.zip
+|               |   |   |       
+|               |   |   +---07
+|               |   |   |       BhavCopy_20251007.csv.zip
+|               |   |   |       
+|               |   |   +---08
+|               |   |   |       BhavCopy_20251008.csv.zip
+|               |   |   |       
+|               |   |   +---09
+|               |   |   |       BhavCopy_20251009.csv.zip
+|               |   |   |       
+|               |   |   +---10
+|               |   |   |       BhavCopy_20251010.csv.zip
+|               |   |   |       
+|               |   |   +---13
+|               |   |   |       BhavCopy_20251013.csv.zip
+|               |   |   |       
+|               |   |   +---14
+|               |   |   |       BhavCopy_20251014.csv.zip
+|               |   |   |       
+|               |   |   +---15
+|               |   |   |       BhavCopy_20251015.csv.zip
+|               |   |   |       
+|               |   |   +---16
+|               |   |   |       BhavCopy_20251016.csv.zip
+|               |   |   |       
+|               |   |   +---17
+|               |   |   |       BhavCopy_20251017.csv.zip
+|               |   |   |       
+|               |   |   +---20
+|               |   |   |       BhavCopy_20251020.csv.zip
+|               |   |   |       
+|               |   |   +---21
+|               |   |   |       BhavCopy_20251021.csv.zip
+|               |   |   |       
+|               |   |   +---22
+|               |   |   +---23
+|               |   |   |       BhavCopy_20251023.csv.zip
+|               |   |   |       
+|               |   |   +---24
+|               |   |   |       BhavCopy_20251024.csv.zip
+|               |   |   |       
+|               |   |   +---27
+|               |   |   |       BhavCopy_20251027.csv.zip
+|               |   |   |       
+|               |   |   +---28
+|               |   |   |       BhavCopy_20251028.csv.zip
+|               |   |   |       
+|               |   |   +---29
+|               |   |   |       BhavCopy_20251029.csv.zip
+|               |   |   |       
+|               |   |   +---30
+|               |   |   |       BhavCopy_20251030.csv.zip
+|               |   |   |       
+|               |   |   \---31
+|               |   |           BhavCopy_20251031.csv.zip
+|               |   |           
+|               |   +---11
+|               |   |   +---03
+|               |   |   |       BhavCopy_20251103.csv.zip
+|               |   |   |       
+|               |   |   +---04
+|               |   |   |       BhavCopy_20251104.csv.zip
+|               |   |   |       
+|               |   |   +---05
+|               |   |   +---06
+|               |   |   |       BhavCopy_20251106.csv.zip
+|               |   |   |       
+|               |   |   +---07
+|               |   |   |       BhavCopy_20251107.csv.zip
+|               |   |   |       
+|               |   |   +---10
+|               |   |   |       BhavCopy_20251110.csv.zip
+|               |   |   |       
+|               |   |   +---11
+|               |   |   |       BhavCopy_20251111.csv.zip
+|               |   |   |       
+|               |   |   +---12
+|               |   |   |       BhavCopy_20251112.csv.zip
+|               |   |   |       
+|               |   |   +---13
+|               |   |   |       BhavCopy_20251113.csv.zip
+|               |   |   |       
+|               |   |   +---14
+|               |   |   |       BhavCopy_20251114.csv.zip
+|               |   |   |       
+|               |   |   +---17
+|               |   |   |       BhavCopy_20251117.csv.zip
+|               |   |   |       
+|               |   |   +---18
+|               |   |   |       BhavCopy_20251118.csv.zip
+|               |   |   |       
+|               |   |   +---19
+|               |   |   |       BhavCopy_20251119.csv.zip
+|               |   |   |       
+|               |   |   +---20
+|               |   |   |       BhavCopy_20251120.csv.zip
+|               |   |   |       
+|               |   |   +---21
+|               |   |   |       BhavCopy_20251121.csv.zip
+|               |   |   |       
+|               |   |   +---24
+|               |   |   |       BhavCopy_20251124.csv.zip
+|               |   |   |       
+|               |   |   +---25
+|               |   |   |       BhavCopy_20251125.csv.zip
+|               |   |   |       
+|               |   |   +---26
+|               |   |   |       BhavCopy_20251126.csv.zip
+|               |   |   |       
+|               |   |   +---27
+|               |   |   |       BhavCopy_20251127.csv.zip
+|               |   |   |       
+|               |   |   \---28
+|               |   |           BhavCopy_20251128.csv.zip
+|               |   |           
+|               |   \---12
+|               |       +---01
+|               |       |       BhavCopy_20251201.csv.zip
+|               |       |       
+|               |       +---02
+|               |       |       BhavCopy_20251202.csv.zip
+|               |       |       
+|               |       +---03
+|               |       |       BhavCopy_20251203.csv.zip
+|               |       |       
+|               |       +---04
+|               |       |       BhavCopy_20251204.csv.zip
+|               |       |       
+|               |       +---05
+|               |       |       BhavCopy_20251205.csv.zip
+|               |       |       
+|               |       +---08
+|               |       |       BhavCopy_20251208.csv.zip
+|               |       |       
+|               |       +---09
+|               |       |       BhavCopy_20251209.csv.zip
+|               |       |       
+|               |       +---10
+|               |       |       BhavCopy_20251210.csv.zip
+|               |       |       
+|               |       +---11
+|               |       |       BhavCopy_20251211.csv.zip
+|               |       |       
+|               |       +---12
+|               |       |       BhavCopy_20251212.csv.zip
+|               |       |       
+|               |       +---15
+|               |       |       BhavCopy_20251215.csv.zip
+|               |       |       
+|               |       +---16
+|               |       |       BhavCopy_20251216.csv.zip
+|               |       |       
+|               |       +---17
+|               |       |       BhavCopy_20251217.csv.zip
+|               |       |       
+|               |       +---18
+|               |       |       BhavCopy_20251218.csv.zip
+|               |       |       
+|               |       +---19
+|               |       |       BhavCopy_20251219.csv.zip
+|               |       |       
+|               |       +---22
+|               |       |       BhavCopy_20251222.csv.zip
+|               |       |       
+|               |       +---23
+|               |       |       BhavCopy_20251223.csv.zip
+|               |       |       
+|               |       +---24
+|               |       |       BhavCopy_20251224.csv.zip
+|               |       |       
+|               |       +---25
+|               |       +---26
+|               |       |       BhavCopy_20251226.csv.zip
+|               |       |       
+|               |       +---29
+|               |       |       BhavCopy_20251229.csv.zip
+|               |       |       
+|               |       +---30
+|               |       |       BhavCopy_20251230.csv.zip
+|               |       |       
+|               |       \---31
+|               |               BhavCopy_20251231.csv.zip
+|               |               
+|               \---2026
+|                   +---01
+|                   |   +---01
+|                   |   |       BhavCopy_20260101.csv.zip
+|                   |   |       
+|                   |   +---02
+|                   |   |       BhavCopy_20260102.csv.zip
+|                   |   |       
+|                   |   +---05
+|                   |   |       BhavCopy_20260105.csv.zip
+|                   |   |       
+|                   |   +---06
+|                   |   |       BhavCopy_20260106.csv.zip
+|                   |   |       
+|                   |   +---07
+|                   |   |       BhavCopy_20260107.csv.zip
+|                   |   |       
+|                   |   +---08
+|                   |   |       BhavCopy_20260108.csv.zip
+|                   |   |       
+|                   |   +---09
+|                   |   |       BhavCopy_20260109.csv.zip
+|                   |   |       
+|                   |   +---12
+|                   |   |       BhavCopy_20260112.csv.zip
+|                   |   |       
+|                   |   +---13
+|                   |   |       BhavCopy_20260113.csv.zip
+|                   |   |       
+|                   |   +---14
+|                   |   |       BhavCopy_20260114.csv.zip
+|                   |   |       
+|                   |   +---15
+|                   |   +---16
+|                   |   |       BhavCopy_20260116.csv.zip
+|                   |   |       
+|                   |   +---19
+|                   |   |       BhavCopy_20260119.csv.zip
+|                   |   |       
+|                   |   +---20
+|                   |   |       BhavCopy_20260120.csv.zip
+|                   |   |       
+|                   |   +---21
+|                   |   |       BhavCopy_20260121.csv.zip
+|                   |   |       
+|                   |   +---22
+|                   |   |       BhavCopy_20260122.csv.zip
+|                   |   |       
+|                   |   +---23
+|                   |   |       BhavCopy_20260123.csv.zip
+|                   |   |       
+|                   |   +---26
+|                   |   +---27
+|                   |   |       BhavCopy_20260127.csv.zip
+|                   |   |       
+|                   |   +---28
+|                   |   |       BhavCopy_20260128.csv.zip
+|                   |   |       
+|                   |   +---29
+|                   |   |       BhavCopy_20260129.csv.zip
+|                   |   |       
+|                   |   \---30
+|                   |           BhavCopy_20260130.csv.zip
+|                   |           
+|                   +---02
+|                   |   +---02
+|                   |   |       BhavCopy_20260202.csv.zip
+|                   |   |       
+|                   |   +---03
+|                   |   |       BhavCopy_20260203.csv.zip
+|                   |   |       
+|                   |   +---04
+|                   |   |       BhavCopy_20260204.csv.zip
+|                   |   |       
+|                   |   +---05
+|                   |   |       BhavCopy_20260205.csv.zip
+|                   |   |       
+|                   |   +---06
+|                   |   |       BhavCopy_20260206.csv.zip
+|                   |   |       
+|                   |   +---09
+|                   |   |       BhavCopy_20260209.csv.zip
+|                   |   |       
+|                   |   +---10
+|                   |   |       BhavCopy_20260210.csv.zip
+|                   |   |       
+|                   |   +---11
+|                   |   |       BhavCopy_20260211.csv.zip
+|                   |   |       
+|                   |   +---12
+|                   |   |       BhavCopy_20260212.csv.zip
+|                   |   |       
+|                   |   +---13
+|                   |   |       BhavCopy_20260213.csv.zip
+|                   |   |       
+|                   |   +---16
+|                   |   |       BhavCopy_20260216.csv.zip
+|                   |   |       
+|                   |   +---17
+|                   |   |       BhavCopy_20260217.csv.zip
+|                   |   |       
+|                   |   +---18
+|                   |   |       BhavCopy_20260218.csv.zip
+|                   |   |       
+|                   |   +---19
+|                   |   |       BhavCopy_20260219.csv.zip
+|                   |   |       
+|                   |   +---20
+|                   |   |       BhavCopy_20260220.csv.zip
+|                   |   |       
+|                   |   +---23
+|                   |   |       BhavCopy_20260223.csv.zip
+|                   |   |       
+|                   |   +---24
+|                   |   |       BhavCopy_20260224.csv.zip
+|                   |   |       
+|                   |   +---25
+|                   |   |       BhavCopy_20260225.csv.zip
+|                   |   |       
+|                   |   +---26
+|                   |   |       BhavCopy_20260226.csv.zip
+|                   |   |       
+|                   |   \---27
+|                   |           BhavCopy_20260227.csv.zip
+|                   |           
+|                   +---03
+|                   |   +---02
+|                   |   |       BhavCopy_20260302.csv.zip
+|                   |   |       
+|                   |   +---03
+|                   |   +---04
+|                   |   |       BhavCopy_20260304.csv.zip
+|                   |   |       
+|                   |   +---05
+|                   |   |       BhavCopy_20260305.csv.zip
+|                   |   |       
+|                   |   +---06
+|                   |   |       BhavCopy_20260306.csv.zip
+|                   |   |       
+|                   |   +---09
+|                   |   |       BhavCopy_20260309.csv.zip
+|                   |   |       
+|                   |   +---10
+|                   |   |       BhavCopy_20260310.csv.zip
+|                   |   |       
+|                   |   +---11
+|                   |   |       BhavCopy_20260311.csv.zip
+|                   |   |       
+|                   |   +---12
+|                   |   |       BhavCopy_20260312.csv.zip
+|                   |   |       
+|                   |   +---13
+|                   |   |       BhavCopy_20260313.csv.zip
+|                   |   |       
+|                   |   +---16
+|                   |   |       BhavCopy_20260316.csv.zip
+|                   |   |       
+|                   |   +---17
+|                   |   |       BhavCopy_20260317.csv.zip
+|                   |   |       
+|                   |   +---18
+|                   |   |       BhavCopy_20260318.csv.zip
+|                   |   |       
+|                   |   +---19
+|                   |   |       BhavCopy_20260319.csv.zip
+|                   |   |       
+|                   |   +---20
+|                   |   |       BhavCopy_20260320.csv.zip
+|                   |   |       
+|                   |   +---23
+|                   |   |       BhavCopy_20260323.csv.zip
+|                   |   |       
+|                   |   +---24
+|                   |   |       BhavCopy_20260324.csv.zip
+|                   |   |       
+|                   |   +---25
+|                   |   |       BhavCopy_20260325.csv.zip
+|                   |   |       
+|                   |   +---26
+|                   |   +---27
+|                   |   |       BhavCopy_20260327.csv.zip
+|                   |   |       
+|                   |   +---30
+|                   |   |       BhavCopy_20260330.csv.zip
+|                   |   |       
+|                   |   \---31
+|                   +---04
+|                   |   +---01
+|                   |   |       BhavCopy_20260401.csv.zip
+|                   |   |       
+|                   |   +---02
+|                   |   |       BhavCopy_20260402.csv.zip
+|                   |   |       
+|                   |   +---03
+|                   |   +---06
+|                   |   |       BhavCopy_20260406.csv.zip
+|                   |   |       
+|                   |   +---07
+|                   |   |       BhavCopy_20260407.csv.zip
+|                   |   |       
+|                   |   +---08
+|                   |   |       BhavCopy_20260408.csv.zip
+|                   |   |       
+|                   |   +---09
+|                   |   |       BhavCopy_20260409.csv.zip
+|                   |   |       
+|                   |   +---10
+|                   |   |       BhavCopy_20260410.csv.zip
+|                   |   |       
+|                   |   +---13
+|                   |   |       BhavCopy_20260413.csv.zip
+|                   |   |       
+|                   |   +---14
+|                   |   +---15
+|                   |   |       BhavCopy_20260415.csv.zip
+|                   |   |       
+|                   |   +---16
+|                   |   |       BhavCopy_20260416.csv.zip
+|                   |   |       
+|                   |   +---17
+|                   |   |       BhavCopy_20260417.csv.zip
+|                   |   |       
+|                   |   +---20
+|                   |   |       BhavCopy_20260420.csv.zip
+|                   |   |       
+|                   |   +---21
+|                   |   |       BhavCopy_20260421.csv.zip
+|                   |   |       
+|                   |   +---22
+|                   |   |       BhavCopy_20260422.csv.zip
+|                   |   |       
+|                   |   +---23
+|                   |   |       BhavCopy_20260423.csv.zip
+|                   |   |       
+|                   |   +---24
+|                   |   |       BhavCopy_20260424.csv.zip
+|                   |   |       
+|                   |   +---27
+|                   |   |       BhavCopy_20260427.csv.zip
+|                   |   |       
+|                   |   +---28
+|                   |   |       BhavCopy_20260428.csv.zip
+|                   |   |       
+|                   |   +---29
+|                   |   |       BhavCopy_20260429.csv.zip
+|                   |   |       
+|                   |   \---30
+|                   |           BhavCopy_20260430.csv.zip
+|                   |           
+|                   +---05
+|                   |   +---01
+|                   |   +---04
+|                   |   |       BhavCopy_20260504.csv.zip
+|                   |   |       
+|                   |   +---05
+|                   |   |       BhavCopy_20260505.csv.zip
+|                   |   |       
+|                   |   +---06
+|                   |   |       BhavCopy_20260506.csv.zip
+|                   |   |       
+|                   |   +---07
+|                   |   |       BhavCopy_20260507.csv.zip
+|                   |   |       
+|                   |   +---08
+|                   |   |       BhavCopy_20260508.csv.zip
+|                   |   |       
+|                   |   +---11
+|                   |   |       BhavCopy_20260511.csv.zip
+|                   |   |       
+|                   |   +---12
+|                   |   |       BhavCopy_20260512.csv.zip
+|                   |   |       
+|                   |   +---13
+|                   |   |       BhavCopy_20260513.csv.zip
+|                   |   |       
+|                   |   +---14
+|                   |   |       BhavCopy_20260514.csv.zip
+|                   |   |       
+|                   |   +---15
+|                   |   |       BhavCopy_20260515.csv.zip
+|                   |   |       
+|                   |   +---18
+|                   |   |       BhavCopy_20260518.csv.zip
+|                   |   |       
+|                   |   +---19
+|                   |   |       BhavCopy_20260519.csv.zip
+|                   |   |       
+|                   |   +---20
+|                   |   |       BhavCopy_20260520.csv.zip
+|                   |   |       
+|                   |   +---21
+|                   |   |       BhavCopy_20260521.csv.zip
+|                   |   |       
+|                   |   +---22
+|                   |   |       BhavCopy_20260522.csv.zip
+|                   |   |       
+|                   |   +---25
+|                   |   |       BhavCopy_20260525.csv.zip
+|                   |   |       
+|                   |   +---26
+|                   |   |       BhavCopy_20260526.csv.zip
+|                   |   |       
+|                   |   +---27
+|                   |   |       BhavCopy_20260527.csv.zip
+|                   |   |       
+|                   |   +---28
+|                   |   \---29
+|                   |           BhavCopy_20260529.csv.zip
+|                   |           
+|                   +---06
+|                   |   +---01
+|                   |   |       BhavCopy_20260601.csv.zip
+|                   |   |       
+|                   |   +---02
+|                   |   |       BhavCopy_20260602.csv.zip
+|                   |   |       
+|                   |   +---03
+|                   |   |       BhavCopy_20260603.csv.zip
+|                   |   |       
+|                   |   +---04
+|                   |   |       BhavCopy_20260604.csv.zip
+|                   |   |       
+|                   |   +---05
+|                   |   |       BhavCopy_20260605.csv.zip
+|                   |   |       
+|                   |   +---08
+|                   |   |       BhavCopy_20260608.csv.zip
+|                   |   |       
+|                   |   +---09
+|                   |   |       BhavCopy_20260609.csv.zip
+|                   |   |       
+|                   |   +---10
+|                   |   |       BhavCopy_20260610.csv.zip
+|                   |   |       
+|                   |   +---11
+|                   |   |       BhavCopy_20260611.csv.zip
+|                   |   |       
+|                   |   +---12
+|                   |   |       BhavCopy_20260612.csv.zip
+|                   |   |       
+|                   |   +---15
+|                   |   |       BhavCopy_20260615.csv.zip
+|                   |   |       
+|                   |   +---16
+|                   |   |       BhavCopy_20260616.csv.zip
+|                   |   |       
+|                   |   +---17
+|                   |   |       BhavCopy_20260617.csv.zip
+|                   |   |       
+|                   |   +---18
+|                   |   |       BhavCopy_20260618.csv.zip
+|                   |   |       
+|                   |   +---19
+|                   |   |       BhavCopy_20260619.csv.zip
+|                   |   |       
+|                   |   +---22
+|                   |   |       BhavCopy_20260622.csv.zip
+|                   |   |       
+|                   |   +---23
+|                   |   |       BhavCopy_20260623.csv.zip
+|                   |   |       
+|                   |   +---24
+|                   |   |       BhavCopy_20260624.csv.zip
+|                   |   |       
+|                   |   +---25
+|                   |   |       BhavCopy_20260625.csv.zip
+|                   |   |       
+|                   |   +---26
+|                   |   +---29
+|                   |   |       BhavCopy_20260629.csv.zip
+|                   |   |       
+|                   |   \---30
+|                   |           BhavCopy_20260630.csv.zip
+|                   |           
+|                   +---07
+|                   |   +---01
+|                   |   |       BhavCopy_20260701.csv.zip
+|                   |   |       
+|                   |   +---02
+|                   |   |       BhavCopy_20260702.csv.zip
+|                   |   |       
+|                   |   +---03
+|                   |   |       BhavCopy_20260703.csv.zip
+|                   |   |       
+|                   |   +---06
+|                   |   |       BhavCopy_20260706.csv.zip
+|                   |   |       
+|                   |   +---07
+|                   |   |       BhavCopy_20260707.csv.zip
+|                   |   |       
+|                   |   +---08
+|                   |   |       BhavCopy_20260708.csv.zip
+|                   |   |       
+|                   |   +---09
+|                   |   |       BhavCopy_20260709.csv.zip
+|                   |   |       
+|                   |   +---10
+|                   |   |       BhavCopy_20260710.csv.zip
+|                   |   |       
+|                   |   +---13
+|                   |   |       BhavCopy_20260713.csv.zip
+|                   |   |       
+|                   |   +---14
+|                   |   |       BhavCopy_20260714.csv.zip
+|                   |   |       
+|                   |   +---15
+|                   |   |       BhavCopy_20260715.csv.zip
+|                   |   |       
+|                   |   +---16
+|                   |   |       BhavCopy_20260716.csv.zip
+|                   |   |       
+|                   |   +---17
+|                   |   |       BhavCopy_20260717.csv.zip
+|                   |   |       
+|                   |   +---20
+|                   |   |       BhavCopy_20260720.csv.zip
+|                   |   |       
+|                   |   +---21
+|                   |   |       BhavCopy_20260721.csv.zip
+|                   |   |       
+|                   |   +---22
+|                   |   |       BhavCopy_20260722.csv.zip
+|                   |   |       
+|                   |   +---23
+|                   |   |       BhavCopy_20260723.csv.zip
+|                   |   |       
+|                   |   +---24
+|                   |   |       BhavCopy_20260724.csv.zip
+|                   |   |       
+|                   |   +---27
+|                   |   |       BhavCopy_20260727.csv.zip
+|                   |   |       
+|                   |   +---28
+|                   |   |       BhavCopy_20260728.csv.zip
+|                   |   |       
+|                   |   +---29
+|                   |   |       BhavCopy_20260729.csv.zip
+|                   |   |       
+|                   |   +---30
+|                   |   |       BhavCopy_20260730.csv.zip
+|                   |   |       
+|                   |   \---31
+|                   |           BhavCopy_20260731.csv.zip
+|                   |           
+|                   +---08
+|                   |   +---03
+|                   |   |       BhavCopy_20260803.csv.zip
+|                   |   |       
+|                   |   +---04
+|                   |   |       BhavCopy_20260804.csv.zip
+|                   |   |       
+|                   |   +---05
+|                   |   |       BhavCopy_20260805.csv.zip
+|                   |   |       
+|                   |   +---06
+|                   |   |       BhavCopy_20260806.csv.zip
+|                   |   |       
+|                   |   +---07
+|                   |   |       BhavCopy_20260807.csv.zip
+|                   |   |       
+|                   |   +---10
+|                   |   |       BhavCopy_20260810.csv.zip
+|                   |   |       
+|                   |   +---11
+|                   |   |       BhavCopy_20260811.csv.zip
+|                   |   |       
+|                   |   +---12
+|                   |   |       BhavCopy_20260812.csv.zip
+|                   |   |       
+|                   |   +---13
+|                   |   |       BhavCopy_20260813.csv.zip
+|                   |   |       
+|                   |   +---14
+|                   |   |       BhavCopy_20260814.csv.zip
+|                   |   |       
+|                   |   +---17
+|                   |   |       BhavCopy_20260817.csv.zip
+|                   |   |       
+|                   |   +---18
+|                   |   |       BhavCopy_20260818.csv.zip
+|                   |   |       
+|                   |   +---19
+|                   |   |       BhavCopy_20260819.csv.zip
+|                   |   |       
+|                   |   +---20
+|                   |   |       BhavCopy_20260820.csv.zip
+|                   |   |       
+|                   |   +---21
+|                   |   |       BhavCopy_20260821.csv.zip
+|                   |   |       
+|                   |   +---24
+|                   |   |       BhavCopy_20260824.csv.zip
+|                   |   |       
+|                   |   +---25
+|                   |   |       BhavCopy_20260825.csv.zip
+|                   |   |       
+|                   |   +---26
+|                   |   |       BhavCopy_20260826.csv.zip
+|                   |   |       
+|                   |   +---27
+|                   |   |       BhavCopy_20260827.csv.zip
+|                   |   |       
+|                   |   +---28
+|                   |   |       BhavCopy_20260828.csv.zip
+|                   |   |       
+|                   |   \---31
+|                   |           BhavCopy_20260831.csv.zip
+|                   |           
+|                   \---09
+|                       +---01
+|                       |       BhavCopy_20260901.csv.zip
+|                       |       
+|                       +---02
+|                       |       BhavCopy_20260902.csv.zip
+|                       |       
+|                       +---03
+|                       |       BhavCopy_20260903.csv.zip
+|                       |       
+|                       +---04
+|                       |       BhavCopy_20260904.csv.zip
+|                       |       
+|                       +---07
+|                       |       BhavCopy_20260907.csv.zip
+|                       |       
+|                       +---08
+|                       |       BhavCopy_20260908.csv.zip
+|                       |       
+|                       +---09
+|                       |       BhavCopy_20260909.csv.zip
+|                       |       
+|                       +---10
+|                       |       BhavCopy_20260910.csv.zip
+|                       |       
+|                       +---11
+|                       |       BhavCopy_20260911.csv.zip
+|                       |       
+|                       +---14
+|                       +---15
+|                       |       BhavCopy_20260915.csv.zip
+|                       |       
+|                       +---16
+|                       |       BhavCopy_20260916.csv.zip
+|                       |       
+|                       +---17
+|                       |       BhavCopy_20260917.csv.zip
+|                       |       
+|                       +---18
+|                       |       BhavCopy_20260918.csv.zip
+|                       |       
+|                       +---21
+|                       |       BhavCopy_20260921.csv.zip
+|                       |       
+|                       +---22
+|                       |       BhavCopy_20260922.csv.zip
+|                       |       
+|                       +---23
+|                       |       BhavCopy_20260923.csv.zip
+|                       |       
+|                       +---24
+|                       |       BhavCopy_20260924.csv.zip
+|                       |       
+|                       \---25
+|                               BhavCopy_20260925.csv.zip
+|                               
++---nse_js
+|       blinkui.js__v=25092026
+|       bootstrap-multiselect.min.js__v=25092026
+|       bootstrap.min.js__v=25092026
+|       common.js__v=25092026
+|       corporate-filings.js
+|       excellentexport.js__v=25092026
+|       gijgo.min.js__v=25092026
+|       header-nifty.js
+|       highstock.js__v=25092026
+|       integrated-filling-csp.js__v=25092026
+|       jquery-3.6.0.min.js__v=25092026
+|       jquery.responsivetabs.js__v=25092026
+|       js__id=G-87M7PJ3R97
+|       library.js
+|       metisMenu.min.js__v=25092026
+|       moment.min.js__v=25092026
+|       multilang.js__v=25092026
+|       nse-min.js__v=25092026
+|       P9_Language.js__v=25092026
+|       pagination.min.js__v=25092026
+|       polyfill.min.js__v=25092026
+|       popper.min.js__v=25092026
+|       QBUgcQs
+|       quick-links.js__v=25092026
+|       rangeslider.min.js__v=25092026
+|       regulatoryStatusModule.js__v=25092026
+|       slick.min.js__v=25092026
+|       sweetalert.min.js__v=25092026
+|       tableExport.js__v=25092026
+|       typeahead.bundle.js__v=25092026
+|       
++---nse_stock_engine.egg-info
+|       dependency_links.txt
+|       entry_points.txt
+|       PKG-INFO
+|       requires.txt
+|       SOURCES.txt
+|       top_level.txt
+|       
++---tests
+|       test_indicators.py
+|       
+\---util
+        check_scripts.py
+        download_scripts.py
+        
