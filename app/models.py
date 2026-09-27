@@ -66,6 +66,114 @@ class TechnicalIndicator(Base):
     nifty_relative_20d: Mapped[Decimal | None] = mapped_column(Numeric(12,6))
     nifty_relative_60d: Mapped[Decimal | None] = mapped_column(Numeric(12,6))
 
+class FinancialStatement(Base):
+    __tablename__ = "financial_statements"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id"),
+        nullable=False,
+    )
+
+    # FY / quarter / TTM
+    period_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+    )
+
+    period_end: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    filing_date: Mapped[date | None] = mapped_column(Date)
+
+    # Income statement
+    revenue: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 4)
+    )
+    ebitda: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 4)
+    )
+    ebit: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 4)
+    )
+    profit_before_tax: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 4)
+    )
+    net_income: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 4)
+    )
+    eps: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 6)
+    )
+
+    # Balance sheet
+    total_assets: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 4)
+    )
+    total_equity: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 4)
+    )
+    total_debt: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 4)
+    )
+    cash_and_equivalents: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 4)
+    )
+
+    # Cash flow
+    operating_cash_flow: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 4)
+    )
+    capital_expenditure: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 4)
+    )
+    free_cash_flow: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 4)
+    )
+
+    # Source tracking
+    source: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+
+    source_reference: Mapped[str | None] = mapped_column(Text)
+
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+    statement_scope: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="UNKNOWN",
+    )
+
+    submission_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="ORIGINAL",
+    )
+
+    audit_status: Mapped[str | None] = mapped_column(
+        String(20)
+    )
+
+    reporting_standard: Mapped[str | None] = mapped_column(
+        String(30)
+    )
+
+    source_url: Mapped[str | None] = mapped_column(
+        Text
+    )
+
 class IngestionRun(Base):
     __tablename__ = "ingestion_runs"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)

@@ -10,8 +10,9 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.config import settings
 from app.db import SessionLocal
-from app.models import Company, DailyPrice, IngestionRun
+from app.models import Company, DailyPrice, FinancialStatement, IngestionRun
 from app.sources.nse import NSEClient
+from app.sources.nse_financials import NSEFinancialClient
 
 def save_universe(df: pd.DataFrame) -> int:
     written = 0
@@ -44,6 +45,75 @@ def download_universe() -> int:
     client = NSEClient()
     df = client.universe()
     return save_universe(df)
+
+def save_financial_statements(rows: list[dict]) -> int:
+    if not rows:
+        return 0
+
+    written = 0
+
+    with SessionLocal.begin() as db:
+        for row in rows:
+            company_id = row["company_id"]
+
+            stmt = insert(FinancialStatement).values(
+                company_id=company_id,
+                period_type=row["period_type"],
+                period_end=row["period_end"],
+                filing_date=row.get("filing_date"),
+                revenue=row.get("revenue"),
+                ebitda=row.get("ebitda"),
+                ebit=row.get("ebit"),
+                profit_before_tax=row.get("profit_before_tax"),
+                net_income=row.get("net_income"),
+                eps=row.get("eps"),
+                total_assets=row.get("total_assets"),
+                total_equity=row.get("total_equity"),
+                total_debt=row.get("total_debt"),
+                cash_and_equivalents=row.get("cash_and_equivalents"),
+                operating_cash_flow=row.get("operating_cash_flow"),
+                capital_expenditure=row.get("capital_expenditure"),
+                free_cash_flow=row.get("free_cash_flow"),
+                source=row["source"],
+                source_reference=row.get("source_reference"),
+                statement_scope=row.get("statement_scope", "UNKNOWN"),
+                submission_type=row.get("submission_type", "ORIGINAL"),
+                audit_status=row.get("audit_status"),
+                reporting_standard=row.get("reporting_standard"),
+                source_url=row.get("source_url"),
+            )
+
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_financial_statement_identity",
+                set_={
+                    "filing_date": stmt.excluded.filing_date,
+                    "revenue": stmt.excluded.revenue,
+                    "ebitda": stmt.excluded.ebitda,
+                    "ebit": stmt.excluded.ebit,
+                    "profit_before_tax": stmt.excluded.profit_before_tax,
+                    "net_income": stmt.excluded.net_income,
+                    "eps": stmt.excluded.eps,
+                    "total_assets": stmt.excluded.total_assets,
+                    "total_equity": stmt.excluded.total_equity,
+                    "total_debt": stmt.excluded.total_debt,
+                    "cash_and_equivalents": stmt.excluded.cash_and_equivalents,
+                    "operating_cash_flow": stmt.excluded.operating_cash_flow,
+                    "capital_expenditure": stmt.excluded.capital_expenditure,
+                    "free_cash_flow": stmt.excluded.free_cash_flow,
+                    "source_reference": stmt.excluded.source_reference,
+                    "updated_at": datetime.now().astimezone(),
+                    "statement_scope": stmt.excluded.statement_scope,
+                    "submission_type": stmt.excluded.submission_type,
+                    "audit_status": stmt.excluded.audit_status,
+                    "reporting_standard": stmt.excluded.reporting_standard,
+                    "source_url": stmt.excluded.source_url,
+                },
+            )
+
+            db.execute(stmt)
+            written += 1
+
+    return written
 
 def _company_map(db):
     return {c.nse_symbol: c.id for c in db.scalars(select(Company)).all()}
@@ -124,6 +194,74 @@ def ingest_bhavcopy(trade_date: date, client: NSEClient | None = None) -> int:
                 run.error_message = repr(exc)
                 run.finished_at = datetime.now().astimezone()
         raise
+
+def ingest_financial_filings(
+    symbol: str,
+    from_date: str = "01-01-2026",
+    to_date: str | None = None,
+) -> int:
+    symbol = symbol.upper()
+
+    client = NSEFinancialClient()
+
+    # Resolve NSE symbol to the existing Company record.
+    with SessionLocal() as db:
+        company = db.execute(
+            select(Company).where(
+                Company.nse_symbol == symbol
+            )
+        ).scalar_one_or_none()
+
+        if company is None:
+            raise ValueError(
+                f"Company not found for NSE symbol: {symbol}. "
+                "Run universe ingestion first."
+            )
+
+        company_id = company.id
+
+    filings = client.get_filings(
+        symbol=symbol,
+        from_date=from_date,
+        to_date=to_date,
+    )
+
+    total_statements = 0
+
+    for filing in filings:
+        if not filing.xbrl_url:
+            continue
+
+        try:
+            xml_text = client.download_xbrl(
+                filing.xbrl_url
+            )
+
+            statements = client.parse_xbrl(
+                xml_text=xml_text,
+                filing=filing,
+            )
+
+            if not statements:
+                continue
+
+            # Attach the existing Company ID to every parsed statement.
+            for statement in statements:
+                statement["company_id"] = company_id
+
+            saved = save_financial_statements(statements)
+            total_statements += saved
+
+        except Exception as exc:
+            print(
+                f"Financial filing failed: "
+                f"{symbol} "
+                f"{filing.period_end} "
+                f"{filing.source_reference}: "
+                f"{exc}"
+            )
+
+    return total_statements
 
 def _int(v):
     try:
