@@ -72,6 +72,77 @@ class NSEClient:
                 df = pd.read_csv(f)
         return normalize_bhavcopy(df), url, content
 
+    def nifty50_history(self, from_date: date, to_date: date) -> list[dict]:
+        import json
+
+        page_url = "https://www.niftyindices.com/reports/historical-data"
+        api_url = (
+            "https://www.niftyindices.com/"
+            "Backpage.aspx/getHistoricaldatatabletoString"
+        )
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/153.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Content-Type": "application/json; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": page_url,
+        }
+
+        # Bootstrap the session so the site can issue its cookies.
+        page_response = self.client.get(
+            page_url,
+            headers=headers,
+            timeout=15.0,
+        )
+
+        payload = {
+            "cinfo": (
+                f"{{'name':'NIFTY 50',"
+                f"'startDate':'{from_date.strftime('%d-%b-%Y')}',"
+                f"'endDate':'{to_date.strftime('%d-%b-%Y')}',"
+                f"'indexName':'NIFTY 50'}}"
+            )
+        }
+
+        response = self.client.post(
+            api_url,
+            headers=headers,
+            json=payload,
+            timeout=60.0,
+        )
+
+        response.raise_for_status()
+
+        content_type = response.headers.get("content-type", "")
+
+        if "json" not in content_type.lower():
+            raise RuntimeError(
+                "NIFTY API returned non-JSON response: "
+                f"HTTP {response.status_code}, "
+                f"Content-Type={content_type}, "
+                f"Body={response.text[:500]!r}"
+            )
+
+        body = response.json()
+        data = body.get("d", [])
+
+        if isinstance(data, str):
+            data = json.loads(data)
+
+        if not data:
+            raise RuntimeError(
+                f"No NIFTY 50 historical data returned for "
+                f"{from_date} to {to_date}"
+            )
+
+        return data
+
 def _first(df, candidates):
     lower = {str(c).strip().lower(): c for c in df.columns}
     for c in candidates:

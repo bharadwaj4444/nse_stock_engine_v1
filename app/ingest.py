@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from decimal import Decimal
 import hashlib
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -10,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.config import settings
 from app.db import SessionLocal
-from app.models import Company, DailyPrice, FinancialStatement, IngestionRun
+from app.models import Company, DailyPrice, FinancialStatement, IngestionRun, BenchmarkPrice
 from app.sources.nse import NSEClient
 from app.sources.nse_financials import NSEFinancialClient
 
@@ -262,6 +263,128 @@ def ingest_financial_filings(
             )
 
     return total_statements
+
+def ingest_financial_filings_for_universe(
+    from_date: str = "01-01-2025",
+    to_date: str | None = None,
+    delay_seconds: float = 1.0,
+) -> int:
+    import time
+
+    with SessionLocal() as db:
+        symbols = db.execute(
+            select(Company.nse_symbol)
+            .where(
+                Company.is_active.is_(True),
+                Company.nse_symbol.is_not(None),
+            )
+            .order_by(Company.nse_symbol)
+        ).scalars().all()
+
+    total_statements = 0
+    failed = 0
+
+    print(f"Financial ingestion: {len(symbols)} companies")
+
+    for index, symbol in enumerate(symbols, start=1):
+        try:
+            saved = ingest_financial_filings(
+                symbol=symbol,
+                from_date=from_date,
+                to_date=to_date,
+            )
+
+            total_statements += saved
+
+            print(
+                f"[{index}/{len(symbols)}] "
+                f"{symbol}: {saved} statements"
+            )
+
+        except Exception as exc:
+            failed += 1
+            print(
+                f"[{index}/{len(symbols)}] "
+                f"{symbol}: FAILED: {exc}"
+            )
+
+        if delay_seconds > 0:
+            time.sleep(delay_seconds)
+
+    print()
+    print(f"Completed: {len(symbols)}")
+    print(f"Failed:    {failed}")
+    print(f"Statements: {total_statements}")
+
+    return total_statements
+
+def ingest_nifty50_history(
+    start: date,
+    end: date,
+) -> int:
+    import yfinance as yf
+
+    data = yf.download(
+        "^NSEI",
+        start=start.isoformat(),
+        end=(end + timedelta(days=1)).isoformat(),
+        auto_adjust=False,
+        progress=False,
+    )
+
+    if data.empty:
+        raise RuntimeError(
+            f"No NIFTY 50 data returned for {start} to {end}"
+        )
+
+    # yfinance may return MultiIndex columns such as:
+    # ('Close', '^NSEI')
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+
+    written = 0
+
+    with SessionLocal() as db:
+        for index_date, row in data.iterrows():
+            trade_date = pd.Timestamp(index_date).date()
+
+            def value(column):
+                raw = row.get(column)
+                if raw is None or pd.isna(raw):
+                    return None
+                return Decimal(str(float(raw)))
+
+            existing = (
+                db.query(BenchmarkPrice)
+                .filter(
+                    BenchmarkPrice.benchmark == "NIFTY50",
+                    BenchmarkPrice.trade_date == trade_date,
+                )
+                .one_or_none()
+            )
+
+            values = {
+                "benchmark": "NIFTY50",
+                "trade_date": trade_date,
+                "open_price": value("Open"),
+                "high_price": value("High"),
+                "low_price": value("Low"),
+                "close_price": value("Close"),
+                "source": "YAHOO_FINANCE",
+                "source_reference": "^NSEI",
+            }
+
+            if existing:
+                for key, item in values.items():
+                    setattr(existing, key, item)
+            else:
+                db.add(BenchmarkPrice(**values))
+
+            written += 1
+
+        db.commit()
+
+    return written
 
 def _int(v):
     try:

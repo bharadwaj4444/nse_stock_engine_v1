@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db import SessionLocal
-from app.models import Company, DailyPrice, TechnicalIndicator
+from app.models import BenchmarkPrice, Company, DailyPrice, TechnicalIndicator
 
 def sma(s, n): return s.rolling(n, min_periods=n).mean()
 def ema(s, n): return s.ewm(span=n, adjust=False, min_periods=n).mean()
@@ -86,63 +86,172 @@ def calculate(df: pd.DataFrame, nifty: pd.Series | None = None) -> pd.DataFrame:
     out["relative_volume20"] = v / v.rolling(20, min_periods=20).mean()
 
     if nifty is not None:
-        nr = nifty.sort_index().pct_change()
-        sr = c.copy()
-        sr.index = pd.to_datetime(df["trade_date"])
-        nr = nr.reindex(sr.index)
-        stock20 = (1 + sr.pct_change()).rolling(20).apply(np.prod, raw=True) - 1
-        nifty20 = (1 + nr).rolling(20).apply(np.prod, raw=True) - 1
-        stock60 = (1 + sr.pct_change()).rolling(60).apply(np.prod, raw=True) - 1
-        nifty60 = (1 + nr).rolling(60).apply(np.prod, raw=True) - 1
-        out["nifty_relative_20d"] = stock20.to_numpy() - nifty20.to_numpy()
-        out["nifty_relative_60d"] = stock60.to_numpy() - nifty60.to_numpy()
+        stock_dates = pd.to_datetime(df["trade_date"])
+
+        stock_close = pd.Series(
+            c.to_numpy(),
+            index=stock_dates
+        )
+
+        nifty_close = nifty.copy()
+        nifty_close.index = pd.to_datetime(nifty_close.index)
+        nifty_close = nifty_close.sort_index()
+
+        aligned = pd.concat(
+            [
+                stock_close.rename("stock"),
+                nifty_close.rename("nifty"),
+            ],
+            axis=1,
+            join="inner",
+        ).sort_index()
+
+        stock20 = aligned["stock"].pct_change(20)
+        nifty20 = aligned["nifty"].pct_change(20)
+
+        stock60 = aligned["stock"].pct_change(60)
+        nifty60 = aligned["nifty"].pct_change(60)
+
+        relative20 = stock20 - nifty20
+        relative60 = stock60 - nifty60
+
+        out["nifty_relative_20d"] = (
+            relative20.reindex(stock_dates).to_numpy()
+        )
+
+        out["nifty_relative_60d"] = (
+            relative60.reindex(stock_dates).to_numpy()
+        )
 
     return out.replace([np.inf, -np.inf], np.nan)
 
-def calculate_for_date(target: date | None = None):
+def calculate_for_date(target=None):
+    if target is None:
+        target = date.today()
+
     with SessionLocal() as db:
-        companies = db.scalars(select(Company).where(Company.is_active.is_(True))).all()
-        # Need ~1 trading year + 200-day warmup. 300 trading rows is enough.
+        # Load NIFTY 50 benchmark close prices once.
+        benchmark_rows = (
+            db.query(BenchmarkPrice)
+            .filter(
+                BenchmarkPrice.benchmark == "NIFTY50",
+                BenchmarkPrice.trade_date <= target,
+            )
+            .order_by(BenchmarkPrice.trade_date)
+            .all()
+        )
+
+        nifty = None
+
+        if benchmark_rows:
+            nifty = pd.Series(
+                {
+                    pd.Timestamp(row.trade_date): float(row.close_price)
+                    for row in benchmark_rows
+                    if row.close_price is not None
+                }
+            ).sort_index()
+
+        companies = (
+            db.query(Company)
+            .filter(Company.is_active.is_(True))
+            .all()
+        )
+
         for company in companies:
-            rows = db.scalars(
-                select(DailyPrice)
-                .where(DailyPrice.company_id == company.id)
+            prices = (
+                db.query(DailyPrice)
+                .filter(
+                    DailyPrice.company_id == company.id,
+                    DailyPrice.trade_date <= target,
+                )
                 .order_by(DailyPrice.trade_date.desc())
                 .limit(550)
-            ).all()
-            if not rows:
+                .all()
+            )
+
+            if not prices:
                 continue
-            rows.reverse()
-            df = pd.DataFrame([{
-                "trade_date": r.trade_date,
-                "open": float(r.open_price) if r.open_price is not None else np.nan,
-                "high": float(r.high_price) if r.high_price is not None else np.nan,
-                "low": float(r.low_price) if r.low_price is not None else np.nan,
-                "close": float(r.close_price) if r.close_price is not None else np.nan,
-                "volume": float(r.volume) if r.volume is not None else np.nan,
-            } for r in rows])
-            if target is not None:
-                df = df[df.trade_date <= target]
-            if len(df) < 20:
-                continue
-            out = calculate(df)
-            records = []
-            for row in out.itertuples(index=False):
-                d = row.trade_date
-                if target is not None and d != target:
-                    continue
-                rec = {"company_id": company.id, "trade_date": d}
-                for col in out.columns:
-                    if col == "trade_date": continue
-                    value = getattr(row, col)
-                    rec[col] = None if pd.isna(value) else float(value)
-                records.append(rec)
-            if records:
-                stmt = insert(TechnicalIndicator).values(records)
-                cols = [c for c in records[0] if c not in ("company_id","trade_date")]
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["company_id","trade_date"],
-                    set_={c: getattr(stmt.excluded,c) for c in cols}
+
+            prices.reverse()
+
+            df = pd.DataFrame(
+                [
+                    {
+                        "trade_date": p.trade_date,
+                        "open": float(p.open_price),
+                        "high": float(p.high_price),
+                        "low": float(p.low_price),
+                        "close": float(p.close_price),
+                        "volume": float(p.volume or 0),
+                    }
+                    for p in prices
+                ]
+            )
+
+            df["trade_date"] = pd.to_datetime(df["trade_date"])
+            df = df.sort_values("trade_date")
+
+            result = calculate(df, nifty=nifty)
+
+            row = result.iloc[-1]
+
+            existing = (
+                db.query(TechnicalIndicator)
+                .filter(
+                    TechnicalIndicator.company_id == company.id,
+                    TechnicalIndicator.trade_date == target,
                 )
-                db.execute(stmt)
-            db.commit()
+                .one_or_none()
+            )
+
+            values = {
+                "company_id": company.id,
+                "trade_date": target,
+
+                "sma20": row.get("sma20"),
+                "sma50": row.get("sma50"),
+                "sma100": row.get("sma100"),
+                "sma200": row.get("sma200"),
+
+                "ema20": row.get("ema20"),
+                "ema50": row.get("ema50"),
+
+                "rsi14": row.get("rsi14"),
+
+                "macd": row.get("macd"),
+                "macd_signal": row.get("macd_signal"),
+                "macd_histogram": row.get("macd_histogram"),
+
+                "atr14": row.get("atr14"),
+
+                "bb_upper": row.get("bb_upper"),
+                "bb_middle": row.get("bb_middle"),
+                "bb_lower": row.get("bb_lower"),
+
+                "adx14": row.get("adx14"),
+
+                "volatility20": row.get("volatility20"),
+                "volatility60": row.get("volatility60"),
+
+                "return_1d": row.get("return_1d"),
+                "return_5d": row.get("return_5d"),
+                "return_20d": row.get("return_20d"),
+                "return_60d": row.get("return_60d"),
+                "return_120d": row.get("return_120d"),
+                "return_252d": row.get("return_252d"),
+
+                "relative_volume20": row.get("relative_volume20"),
+
+                "nifty_relative_20d": row.get("nifty_relative_20d"),
+                "nifty_relative_60d": row.get("nifty_relative_60d"),
+            }
+
+            if existing:
+                for key, value in values.items():
+                    if key not in ("company_id", "trade_date"):
+                        setattr(existing, key, value)
+            else:
+                db.add(TechnicalIndicator(**values))
+
+        db.commit()

@@ -66,6 +66,20 @@ class TechnicalIndicator(Base):
     nifty_relative_20d: Mapped[Decimal | None] = mapped_column(Numeric(12,6))
     nifty_relative_60d: Mapped[Decimal | None] = mapped_column(Numeric(12,6))
 
+class BenchmarkPrice(Base):
+    __tablename__ = "benchmark_prices"
+
+    benchmark: Mapped[str] = mapped_column(String(50), primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+
+    open_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    high_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    low_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    close_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+
+    source: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_reference: Mapped[str | None] = mapped_column(Text)
+
 class FinancialStatement(Base):
     __tablename__ = "financial_statements"
 
