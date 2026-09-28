@@ -261,7 +261,7 @@ class NSEFinancialClient:
                     try:
                         return float(fact["value"])
                     except ValueError:
-                        return None
+                        continue
 
             return None
 
@@ -285,20 +285,27 @@ class NSEFinancialClient:
             if ctx["instant"] == period_end:
                 instant_contexts.append((context_id, ctx))
 
-        # ---------------------------------------------------------
-        # Identify quarter / annual contexts
+                # ---------------------------------------------------------
+        # Identify quarterly, YTD and annual contexts
         #
-        # For a filing period, multiple duration contexts may end
-        # on the same date:
+        # Typical NSE Ind AS structure:
         #
-        #   Q4 filing -> quarterly + annual
-        #   Q1/Q2/Q3 filing -> quarterly and possibly YTD
+        #   Q1: OneD  = Apr-Jun
+        #       FourD = Jan-Jun in some filings
         #
-        # Always choose deterministically:
-        #   quarterly = shortest duration
-        #   annual    = longest duration
+        #   Q2: OneD  = Jul-Sep
+        #       FourD = Apr-Sep / FY YTD depending on fiscal
+        #
+        #   Q3: OneD  = Oct-Dec
+        #       YTD  = Apr-Dec
+        #
+        #   Q4: OneD  = Jan-Mar
+        #       annual = Apr-Mar
+        #
+        # We classify by duration rather than context ID.
         # ---------------------------------------------------------
         quarterly_context = None
+        ytd_context = None
         annual_context = None
 
         duration_candidates: list[
@@ -323,30 +330,123 @@ class NSEFinancialClient:
             )
 
         if duration_candidates:
-            duration_candidates.sort(
-                key=lambda item: item[0]
-            )
+            quarterly_candidates = []
+            ytd_candidates = []
+            annual_candidates = []
 
-            # Shortest duration ending on filing date.
-            quarterly_context = duration_candidates[0][1]
+            for days, context_id, ctx in duration_candidates:
 
-            # Longest duration ending on filing date.
-            annual_context = duration_candidates[-1][1]
+                # Normal quarterly duration.
+                if 75 <= days <= 105:
+                    quarterly_candidates.append(
+                        (days, context_id, ctx)
+                    )
 
-            # Only expose an annual statement when the duration
-            # actually represents approximately one financial year.
-            annual_days = duration_candidates[-1][0]
+                # Six-month / nine-month cumulative period.
+                elif 160 <= days <= 200:
+                    ytd_candidates.append(
+                        (days, context_id, ctx)
+                    )
 
-            if not (330 <= annual_days <= 370):
-                annual_context = None
+                elif 250 <= days <= 300:
+                    ytd_candidates.append(
+                        (days, context_id, ctx)
+                    )
 
+                # Full financial year.
+                elif 330 <= days <= 370:
+                    annual_candidates.append(
+                        (days, context_id, ctx)
+                    )
+
+            # -----------------------------------------------------
+            # Quarterly P&L context
+            #
+            # Normally this is the ~90-day context.
+            #
+            # Some NSE year-end filings use a longer context
+            # (for example 181 days) for Q4 P&L facts. In those
+            # filings, the shortest non-annual context is the
+            # quarterly/Q4 P&L context.
+            # -----------------------------------------------------
+            if quarterly_candidates:
+                quarterly_candidates.sort(
+                    key=lambda item: item[0]
+                )
+
+                quarterly_context = quarterly_candidates[0][1]
+
+            elif duration_candidates:
+                non_annual_candidates = [
+                    item
+                    for item in duration_candidates
+                    if item[0] < 330
+                ]
+
+                if non_annual_candidates:
+                    non_annual_candidates.sort(
+                        key=lambda item: item[0]
+                    )
+
+                    quarterly_context = (
+                        non_annual_candidates[0][1]
+                    )
+
+            # -----------------------------------------------------
+            # YTD cash-flow context
+            #
+            # Prefer the longest cumulative period that is not
+            # the annual period.
+            # -----------------------------------------------------
+            if ytd_candidates:
+                ytd_candidates.sort(
+                    key=lambda item: item[0],
+                    reverse=True,
+                )
+
+                ytd_context = ytd_candidates[0][1]
+
+            # -----------------------------------------------------
+            # Annual context
+            # -----------------------------------------------------
+            if annual_candidates:
+                annual_candidates.sort(
+                    key=lambda item: item[0]
+                )
+
+                annual_context = annual_candidates[0][1]
         # ---------------------------------------------------------
         # Balance sheet context
+        #
+        # Multiple non-dimensional instant contexts can exist for
+        # the same period. Prefer the context that actually contains
+        # balance-sheet facts rather than relying on XML ordering.
         # ---------------------------------------------------------
         balance_context = None
 
         if instant_contexts:
-            balance_context = instant_contexts[0][0]
+
+            balance_concepts = {
+                "Assets",
+                "Equity",
+                "CashAndCashEquivalents",
+                "BorrowingsCurrent",
+                "BorrowingsNoncurrent",
+            }
+
+            best_score = -1
+
+            for context_id, ctx in instant_contexts:
+
+                score = sum(
+                    1
+                    for concept in balance_concepts
+                    if numeric_value(concept, context_id) is not None
+                )
+
+                if score > best_score:
+                    best_score = score
+                    balance_context = context_id
 
         # ---------------------------------------------------------
         # Extract a financial statement
@@ -416,6 +516,33 @@ class NSEFinancialClient:
             if operating_cf is not None and capex is not None:
                 free_cash_flow = operating_cf - abs(capex)
 
+            # YTD cash-flow values are retained internally so the
+            # ingestion layer can convert cumulative YTD values
+            # into true quarterly cash flow.
+            ytd_operating_cf = None
+            ytd_capex = None
+            ytd_fcf = None
+
+            if ytd_context:
+                ytd_operating_cf = numeric_value(
+                    "CashFlowsFromUsedInOperatingActivities",
+                    ytd_context,
+                )
+
+                ytd_capex = numeric_value(
+                    "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+                    ytd_context,
+                )
+
+                if (
+                    ytd_operating_cf is not None
+                    and ytd_capex is not None
+                ):
+                    ytd_fcf = (
+                        ytd_operating_cf
+                        - abs(ytd_capex)
+                    )
+
             statement = {
                 "symbol": filing.symbol,
                 "company_name": filing.company_name,
@@ -442,6 +569,30 @@ class NSEFinancialClient:
                     else None
                 ),
                 "free_cash_flow": free_cash_flow,
+
+                "_ytd_operating_cash_flow": ytd_operating_cf,
+                "_ytd_capital_expenditure": (
+                    abs(ytd_capex)
+                    if ytd_capex is not None
+                    else None
+                ),
+                "_ytd_free_cash_flow": ytd_fcf,
+                "_ytd_start": (
+                    contexts[ytd_context]["start"]
+                    if ytd_context
+                    else None
+                ),
+                "_ytd_end": (
+                    contexts[ytd_context]["end"]
+                    if ytd_context
+                    else None
+                ),
+                "_cash_flow_start": (
+                    contexts[context_id]["start"]
+                ),
+                "_cash_flow_end": (
+                    contexts[context_id]["end"]
+                ),
             }
 
             return statement

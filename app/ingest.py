@@ -4,6 +4,7 @@ from decimal import Decimal
 import hashlib
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from sqlalchemy import select
@@ -228,6 +229,7 @@ def ingest_financial_filings(
     )
 
     total_statements = 0
+    all_statements: list[dict[str, Any]] = []
 
     for filing in filings:
         if not filing.xbrl_url:
@@ -246,12 +248,11 @@ def ingest_financial_filings(
             if not statements:
                 continue
 
-            # Attach the existing Company ID to every parsed statement.
+            # Attach Company ID.
             for statement in statements:
                 statement["company_id"] = company_id
 
-            saved = save_financial_statements(statements)
-            total_statements += saved
+            all_statements.extend(statements)
 
         except Exception as exc:
             print(
@@ -261,6 +262,254 @@ def ingest_financial_filings(
                 f"{filing.source_reference}: "
                 f"{exc}"
             )
+
+    # ---------------------------------------------------------
+    # Convert reported cumulative cash flow into quarterly
+    # cash flow using the ACTUAL XBRL period dates.
+    # ---------------------------------------------------------
+
+    quarterly_statements = [
+        row
+        for row in all_statements
+        if row["period_type"] == "quarterly"
+    ]
+
+    quarterly_statements.sort(
+        key=lambda row: row["period_end"]
+    )
+
+    annual_statements = [
+        row
+        for row in all_statements
+        if row["period_type"] == "annual"
+    ]
+
+    # ---------------------------------------------------------
+    # Quarterly cash flow
+    # ---------------------------------------------------------
+    for statement in quarterly_statements:
+        ytd_ocf = statement.get("_ytd_operating_cash_flow")
+        ytd_capex = statement.get("_ytd_capital_expenditure")
+        ytd_start = statement.get("_ytd_start")
+        ytd_end = statement.get("_ytd_end")
+
+        cash_flow_start = statement.get("_cash_flow_start")
+        cash_flow_end = statement.get("_cash_flow_end")
+
+        period_end = statement["period_end"].isoformat()
+
+        if ytd_ocf is None and ytd_capex is None:
+            continue
+
+        # Case 1:
+        # The reported cumulative cash-flow period is actually
+        # the same period as the quarterly statement.
+        if (
+            ytd_start is not None
+            and ytd_end == period_end
+            and ytd_start == cash_flow_start
+            and cash_flow_end == period_end
+        ):
+            if ytd_ocf is not None:
+                statement["operating_cash_flow"] = ytd_ocf
+
+            if ytd_capex is not None:
+                statement["capital_expenditure"] = ytd_capex
+
+        else:
+            # Case 2:
+            # Find the immediately preceding cumulative statement
+            # having the SAME XBRL YTD start date.
+            previous = None
+
+            for candidate in reversed(quarterly_statements):
+                if candidate is statement:
+                    continue
+
+                if candidate["period_end"] >= statement["period_end"]:
+                    continue
+
+                if candidate.get("_ytd_start") != ytd_start:
+                    continue
+
+                if (
+                    candidate.get("_ytd_end")
+                    != candidate["period_end"].isoformat()
+                ):
+                    continue
+
+                if (
+                    candidate.get("statement_scope")
+                    != statement.get("statement_scope")
+                ):
+                    continue
+
+                if (
+                    candidate.get("submission_type")
+                    != statement.get("submission_type")
+                ):
+                    continue
+
+                previous = candidate
+                break
+
+            if previous is not None:
+                previous_ocf = previous.get(
+                    "_ytd_operating_cash_flow"
+                )
+                previous_capex = previous.get(
+                    "_ytd_capital_expenditure"
+                )
+
+                if (
+                    ytd_ocf is not None
+                    and previous_ocf is not None
+                ):
+                    statement["operating_cash_flow"] = (
+                        ytd_ocf - previous_ocf
+                    )
+
+                if (
+                    ytd_capex is not None
+                    and previous_capex is not None
+                ):
+                    statement["capital_expenditure"] = (
+                        ytd_capex - previous_capex
+                    )
+
+        # Calculate FCF only when both components exist.
+        ocf = statement.get("operating_cash_flow")
+        capex = statement.get("capital_expenditure")
+
+        if ocf is not None and capex is not None:
+            statement["free_cash_flow"] = (
+                ocf - abs(capex)
+            )
+
+    # ---------------------------------------------------------
+    # Annual / Q4 cash flow
+    # ---------------------------------------------------------
+    for annual in annual_statements:
+        annual_ocf = annual.get("operating_cash_flow")
+        annual_capex = annual.get("capital_expenditure")
+
+        annual_start = annual.get("_cash_flow_start")
+        annual_end = annual.get("_cash_flow_end")
+
+        if annual_start is None:
+            continue
+
+        if annual_end != annual["period_end"].isoformat():
+            continue
+
+        # Find the immediately preceding cumulative quarterly
+        # statement with the same fiscal-year start.
+        previous = None
+
+        for candidate in reversed(quarterly_statements):
+            if candidate["period_end"] >= annual["period_end"]:
+                continue
+
+            if candidate.get("_ytd_start") != annual_start:
+                continue
+
+            if (
+                candidate.get("_ytd_end")
+                != candidate["period_end"].isoformat()
+            ):
+                continue
+
+            if (
+                candidate.get("statement_scope")
+                != annual.get("statement_scope")
+            ):
+                continue
+
+            if (
+                candidate.get("submission_type")
+                != annual.get("submission_type")
+            ):
+                continue
+
+            previous = candidate
+            break
+
+        if previous is None:
+            continue
+
+        previous_ocf = previous.get(
+            "_ytd_operating_cash_flow"
+        )
+        previous_capex = previous.get(
+            "_ytd_capital_expenditure"
+        )
+
+        if (
+            annual_ocf is not None
+            and previous_ocf is not None
+        ):
+            annual_q4_ocf = annual_ocf - previous_ocf
+        else:
+            annual_q4_ocf = None
+
+        if (
+            annual_capex is not None
+            and previous_capex is not None
+        ):
+            annual_q4_capex = (
+                annual_capex - previous_capex
+            )
+        else:
+            annual_q4_capex = None
+
+        # Apply derived Q4 cash flow to the quarterly row
+        # for the same period.
+        q4_statement = next(
+            (
+                row
+                for row in quarterly_statements
+                if (
+                    row["period_end"]
+                    == annual["period_end"]
+                    and row.get("statement_scope")
+                    == annual.get("statement_scope")
+                    and row.get("submission_type")
+                    == annual.get("submission_type")
+                )
+            ),
+            None,
+        )
+
+        if q4_statement is not None:
+            if annual_q4_ocf is not None:
+                q4_statement["operating_cash_flow"] = (
+                    annual_q4_ocf
+                )
+
+            if annual_q4_capex is not None:
+                q4_statement["capital_expenditure"] = (
+                    annual_q4_capex
+                )
+
+            q4_ocf = q4_statement.get(
+                "operating_cash_flow"
+            )
+            q4_capex = q4_statement.get(
+                "capital_expenditure"
+            )
+
+            if q4_ocf is not None and q4_capex is not None:
+                q4_statement["free_cash_flow"] = (
+                    q4_ocf - abs(q4_capex)
+                )
+
+    # ---------------------------------------------------------
+    # Save only real database fields.
+    # ---------------------------------------------------------
+    if all_statements:
+        total_statements += save_financial_statements(
+            all_statements
+        )
 
     return total_statements
 
