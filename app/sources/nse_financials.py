@@ -77,6 +77,7 @@ class NSEFinancialClient:
         page: int = 1,
         size: int = 20,
     ) -> list[FinancialFiling]:
+
         if to_date is None:
             to_date = datetime.now().strftime("%d-%m-%Y")
 
@@ -109,6 +110,7 @@ class NSEFinancialClient:
 
         for row in payload.get("data", []):
             qe_date = row.get("qe_Date")
+
             if not qe_date:
                 continue
 
@@ -160,6 +162,7 @@ class NSEFinancialClient:
         xml_text: str,
         filing: FinancialFiling,
     ) -> list[dict[str, Any]]:
+
         root = ET.fromstring(xml_text)
 
         def local_name(tag: str) -> str:
@@ -168,6 +171,7 @@ class NSEFinancialClient:
         # ---------------------------------------------------------
         # Build context metadata
         # ---------------------------------------------------------
+
         contexts: dict[str, dict[str, Any]] = {}
 
         for context in root:
@@ -175,6 +179,7 @@ class NSEFinancialClient:
                 continue
 
             context_id = context.attrib.get("id")
+
             if not context_id:
                 continue
 
@@ -182,7 +187,6 @@ class NSEFinancialClient:
             end_date = None
             instant = None
 
-            # startDate/endDate/instant are children of <period>
             for element in context.iter():
                 name = local_name(element.tag)
 
@@ -195,7 +199,6 @@ class NSEFinancialClient:
                 elif name == "instant":
                     instant = element.text
 
-            # Detect dimensional/scenario contexts.
             has_segment = any(
                 local_name(element.tag) == "segment"
                 for element in context.iter()
@@ -217,6 +220,7 @@ class NSEFinancialClient:
         # ---------------------------------------------------------
         # Collect facts
         # ---------------------------------------------------------
+
         facts: list[dict[str, Any]] = []
 
         for element in root.iter():
@@ -248,6 +252,7 @@ class NSEFinancialClient:
         # ---------------------------------------------------------
         # Find a numeric fact for a concept/context
         # ---------------------------------------------------------
+
         def numeric_value(
             concept: str,
             context_id: str,
@@ -268,10 +273,16 @@ class NSEFinancialClient:
         # ---------------------------------------------------------
         # Find contexts for the filing period
         # ---------------------------------------------------------
+
         period_end = filing.period_end.isoformat()
 
-        duration_contexts: list[tuple[str, dict[str, Any]]] = []
-        instant_contexts: list[tuple[str, dict[str, Any]]] = []
+        duration_contexts: list[
+            tuple[str, dict[str, Any]]
+        ] = []
+
+        instant_contexts: list[
+            tuple[str, dict[str, Any]]
+        ] = []
 
         for context_id, ctx in contexts.items():
 
@@ -280,30 +291,37 @@ class NSEFinancialClient:
                 continue
 
             if ctx["start"] and ctx["end"] == period_end:
-                duration_contexts.append((context_id, ctx))
+                duration_contexts.append(
+                    (context_id, ctx)
+                )
 
             if ctx["instant"] == period_end:
-                instant_contexts.append((context_id, ctx))
+                instant_contexts.append(
+                    (context_id, ctx)
+                )
 
-                # ---------------------------------------------------------
-        # Identify quarterly, YTD and annual contexts
-        #
-        # Typical NSE Ind AS structure:
-        #
-        #   Q1: OneD  = Apr-Jun
-        #       FourD = Jan-Jun in some filings
-        #
-        #   Q2: OneD  = Jul-Sep
-        #       FourD = Apr-Sep / FY YTD depending on fiscal
-        #
-        #   Q3: OneD  = Oct-Dec
-        #       YTD  = Apr-Dec
-        #
-        #   Q4: OneD  = Jan-Mar
-        #       annual = Apr-Mar
-        #
-        # We classify by duration rather than context ID.
         # ---------------------------------------------------------
+        # Identify quarterly, YTD and annual contexts
+        # ---------------------------------------------------------
+        #
+        # Indian FY / NSE patterns:
+        #
+        #   ~90 days   = direct quarter
+        #   ~180 days  = 6M YTD
+        #   ~270 days  = 9M YTD
+        #   ~365 days  = annual
+        #
+        # IMPORTANT:
+        #
+        # A 180/270-day context must NOT automatically become
+        # a quarterly context.
+        #
+        # Exception:
+        #
+        # Some March filings provide Oct-Mar (~180 days) P&L.
+        # That can be the actual Q4 P&L and is handled below.
+        # ---------------------------------------------------------
+
         quarterly_context = None
         ytd_context = None
         annual_context = None
@@ -313,6 +331,7 @@ class NSEFinancialClient:
         ] = []
 
         for context_id, ctx in duration_contexts:
+
             start = datetime.strptime(
                 ctx["start"],
                 "%Y-%m-%d",
@@ -329,99 +348,163 @@ class NSEFinancialClient:
                 (days, context_id, ctx)
             )
 
-        if duration_candidates:
-            quarterly_candidates = []
-            ytd_candidates = []
-            annual_candidates = []
+        quarterly_candidates: list[
+            tuple[int, str, dict[str, Any]]
+        ] = []
+
+        ytd_candidates: list[
+            tuple[int, str, dict[str, Any]]
+        ] = []
+
+        annual_candidates: list[
+            tuple[int, str, dict[str, Any]]
+        ] = []
+
+        for days, context_id, ctx in duration_candidates:
+
+            # Normal quarterly period.
+            if 75 <= days <= 105:
+                quarterly_candidates.append(
+                    (days, context_id, ctx)
+                )
+
+            # Six-month YTD.
+            elif 160 <= days <= 200:
+                ytd_candidates.append(
+                    (days, context_id, ctx)
+                )
+
+            # Nine-month YTD.
+            elif 250 <= days <= 300:
+                ytd_candidates.append(
+                    (days, context_id, ctx)
+                )
+
+            # Full financial year.
+            elif 330 <= days <= 370:
+                annual_candidates.append(
+                    (days, context_id, ctx)
+                )
+
+        # ---------------------------------------------------------
+        # Direct quarterly context
+        # ---------------------------------------------------------
+
+        if quarterly_candidates:
+            quarterly_candidates.sort(
+                key=lambda item: item[0]
+            )
+
+            quarterly_context = quarterly_candidates[0][1]
+
+        # ---------------------------------------------------------
+        # YTD context
+        #
+        # Prefer the longest cumulative context.
+        #
+        # September:
+        #     Apr-Sep
+        #
+        # December:
+        #     Apr-Dec
+        # ---------------------------------------------------------
+
+        if ytd_candidates:
+            ytd_candidates.sort(
+                key=lambda item: item[0],
+                reverse=True,
+            )
+
+            ytd_context = ytd_candidates[0][1]
+
+        # ---------------------------------------------------------
+        # March Q4 special case
+        #
+        # Some March filings do not contain a 90-day Jan-Mar
+        # context. Instead they contain Oct-Mar (~181 days)
+        # containing the actual Q4 P&L.
+        #
+        # We promote that context to quarterly ONLY for March.
+        # ---------------------------------------------------------
+
+        if (
+            quarterly_context is None
+            and filing.period_end.month == 3
+        ):
+            march_fallbacks: list[
+                tuple[int, str, dict[str, Any]]
+            ] = []
+
+            fiscal_year_start = date(
+                filing.period_end.year - 1,
+                4,
+                1,
+            )
 
             for days, context_id, ctx in duration_candidates:
 
-                # Normal quarterly duration.
-                if 75 <= days <= 105:
-                    quarterly_candidates.append(
+                if not (160 <= days <= 300):
+                    continue
+
+                start_date = datetime.strptime(
+                    ctx["start"],
+                    "%Y-%m-%d",
+                ).date()
+
+                # Must start after the beginning of the
+                # financial year. Example: Oct 1 -> Mar 31.
+                if start_date > fiscal_year_start:
+                    march_fallbacks.append(
                         (days, context_id, ctx)
                     )
 
-                # Six-month / nine-month cumulative period.
-                elif 160 <= days <= 200:
-                    ytd_candidates.append(
-                        (days, context_id, ctx)
-                    )
-
-                elif 250 <= days <= 300:
-                    ytd_candidates.append(
-                        (days, context_id, ctx)
-                    )
-
-                # Full financial year.
-                elif 330 <= days <= 370:
-                    annual_candidates.append(
-                        (days, context_id, ctx)
-                    )
-
-            # -----------------------------------------------------
-            # Quarterly P&L context
-            #
-            # Normally this is the ~90-day context.
-            #
-            # Some NSE year-end filings use a longer context
-            # (for example 181 days) for Q4 P&L facts. In those
-            # filings, the shortest non-annual context is the
-            # quarterly/Q4 P&L context.
-            # -----------------------------------------------------
-            if quarterly_candidates:
-                quarterly_candidates.sort(
+            if march_fallbacks:
+                march_fallbacks.sort(
                     key=lambda item: item[0]
                 )
 
-                quarterly_context = quarterly_candidates[0][1]
-
-            elif duration_candidates:
-                non_annual_candidates = [
-                    item
-                    for item in duration_candidates
-                    if item[0] < 330
-                ]
-
-                if non_annual_candidates:
-                    non_annual_candidates.sort(
-                        key=lambda item: item[0]
-                    )
-
-                    quarterly_context = (
-                        non_annual_candidates[0][1]
-                    )
-
-            # -----------------------------------------------------
-            # YTD cash-flow context
-            #
-            # Prefer the longest cumulative period that is not
-            # the annual period.
-            # -----------------------------------------------------
-            if ytd_candidates:
-                ytd_candidates.sort(
-                    key=lambda item: item[0],
-                    reverse=True,
+                quarterly_context = (
+                    march_fallbacks[0][1]
                 )
 
-                ytd_context = ytd_candidates[0][1]
+        # ---------------------------------------------------------
+        # If there is no direct quarterly context, use the YTD
+        # context as the reported quarterly record.
+        #
+        # This is intentional.
+        #
+        # The ingestion layer will later convert:
+        #
+        #   6M - previous 3M = Q2
+        #   9M - previous 6M = Q3
+        #
+        # We must retain the source cumulative values here.
+        # ---------------------------------------------------------
 
-            # -----------------------------------------------------
-            # Annual context
-            # -----------------------------------------------------
-            if annual_candidates:
-                annual_candidates.sort(
-                    key=lambda item: item[0]
-                )
+        if (
+            quarterly_context is None
+            and ytd_context is not None
+        ):
+            quarterly_context = ytd_context
 
-                annual_context = annual_candidates[0][1]
+        # ---------------------------------------------------------
+        # Annual context
+        # ---------------------------------------------------------
+
+        if annual_candidates:
+            annual_candidates.sort(
+                key=lambda item: item[0]
+            )
+
+            annual_context = annual_candidates[0][1]
+
         # ---------------------------------------------------------
         # Balance sheet context
         #
-        # Multiple non-dimensional instant contexts can exist for
-        # the same period. Prefer the context that actually contains
-        # balance-sheet facts rather than relying on XML ordering.
+        # Multiple non-dimensional instant contexts can exist.
+        # Prefer the one containing the balance-sheet facts.
         # ---------------------------------------------------------
+
         balance_context = None
 
         if instant_contexts:
@@ -441,7 +524,10 @@ class NSEFinancialClient:
                 score = sum(
                     1
                     for concept in balance_concepts
-                    if numeric_value(concept, context_id) is not None
+                    if numeric_value(
+                        concept,
+                        context_id,
+                    ) is not None
                 )
 
                 if score > best_score:
@@ -451,6 +537,7 @@ class NSEFinancialClient:
         # ---------------------------------------------------------
         # Extract a financial statement
         # ---------------------------------------------------------
+
         def build_statement(
             context_id: str | None,
             period_type: str,
@@ -458,6 +545,10 @@ class NSEFinancialClient:
 
             if not context_id:
                 return None
+
+            # -----------------------------------------------------
+            # Primary period values
+            # -----------------------------------------------------
 
             revenue = numeric_value(
                 "RevenueFromOperations",
@@ -484,46 +575,147 @@ class NSEFinancialClient:
                 context_id,
             )
 
-            operating_cf = numeric_value(
-                "CashFlowsFromUsedInOperatingActivities",
-                context_id,
-            )
+            # -----------------------------------------------------
+            # Primary cash flow
+            #
+            # Only treat the primary context as direct quarterly
+            # cash flow when it is actually a ~90-day duration.
+            #
+            # The P&L context may legitimately be a YTD fallback,
+            # but YTD cash flow must NOT be stored as quarterly.
+            # -----------------------------------------------------
 
-            capex = numeric_value(
-                "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
-                context_id,
-            )
+            operating_cf = None
+            capex = None
+
+            context_info = contexts.get(context_id)
+
+            if context_info:
+                cf_start = context_info.get("start")
+                cf_end = context_info.get("end")
+
+                if cf_start and cf_end:
+                    try:
+                        cf_start_date = datetime.strptime(
+                            cf_start,
+                            "%Y-%m-%d",
+                        ).date()
+
+                        cf_end_date = datetime.strptime(
+                            cf_end,
+                            "%Y-%m-%d",
+                        ).date()
+
+                        cf_days = (
+                            cf_end_date - cf_start_date
+                        ).days
+
+                        if 75 <= cf_days <= 105:
+                            operating_cf = numeric_value(
+                                "CashFlowsFromUsedInOperatingActivities",
+                                context_id,
+                            )
+
+                            capex = numeric_value(
+                                "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+                                context_id,
+                            )
+
+                    except ValueError:
+                        pass
 
             eps = numeric_value(
                 "BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations",
                 context_id,
             )
 
+            # -----------------------------------------------------
+            # Derived P&L
+            # -----------------------------------------------------
+
             ebit = None
             ebitda = None
 
             if pbt is not None:
+
                 ebit = pbt
 
                 if finance_costs is not None:
                     ebit += finance_costs
 
-            if ebit is not None and depreciation is not None:
-                ebitda = ebit + depreciation
+            if (
+                ebit is not None
+                and depreciation is not None
+            ):
+                ebitda = (
+                    ebit
+                    + depreciation
+                )
+
+            # -----------------------------------------------------
+            # Direct-period FCF
+            # -----------------------------------------------------
 
             free_cash_flow = None
 
-            if operating_cf is not None and capex is not None:
-                free_cash_flow = operating_cf - abs(capex)
+            if (
+                operating_cf is not None
+                and capex is not None
+            ):
+                free_cash_flow = (
+                    operating_cf
+                    - abs(capex)
+                )
 
-            # YTD cash-flow values are retained internally so the
-            # ingestion layer can convert cumulative YTD values
-            # into true quarterly cash flow.
+            # -----------------------------------------------------
+            # YTD values
+            #
+            # These are retained internally for ingestion.
+            # -----------------------------------------------------
+
+            ytd_revenue = None
+            ytd_pbt = None
+            ytd_net_income = None
+            ytd_depreciation = None
+            ytd_finance_costs = None
+            ytd_eps = None
+
             ytd_operating_cf = None
             ytd_capex = None
             ytd_fcf = None
 
             if ytd_context:
+
+                ytd_revenue = numeric_value(
+                    "RevenueFromOperations",
+                    ytd_context,
+                )
+
+                ytd_pbt = numeric_value(
+                    "ProfitBeforeTax",
+                    ytd_context,
+                )
+
+                ytd_net_income = numeric_value(
+                    "ProfitLossForPeriod",
+                    ytd_context,
+                )
+
+                ytd_depreciation = numeric_value(
+                    "DepreciationDepletionAndAmortisationExpense",
+                    ytd_context,
+                )
+
+                ytd_finance_costs = numeric_value(
+                    "FinanceCosts",
+                    ytd_context,
+                )
+
+                ytd_eps = numeric_value(
+                    "BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations",
+                    ytd_context,
+                )
+
                 ytd_operating_cf = numeric_value(
                     "CashFlowsFromUsedInOperatingActivities",
                     ytd_context,
@@ -543,11 +735,17 @@ class NSEFinancialClient:
                         - abs(ytd_capex)
                     )
 
+            # -----------------------------------------------------
+            # Statement
+            # -----------------------------------------------------
+
             statement = {
                 "symbol": filing.symbol,
                 "company_name": filing.company_name,
+
                 "period_type": period_type,
                 "period_end": filing.period_end,
+
                 "filing_date": (
                     datetime.strptime(
                         filing.broadcast_datetime,
@@ -556,50 +754,133 @@ class NSEFinancialClient:
                     if filing.broadcast_datetime
                     else None
                 ),
+
+                # Primary P&L
                 "revenue": revenue,
                 "ebitda": ebitda,
                 "ebit": ebit,
                 "profit_before_tax": pbt,
                 "net_income": net_income,
                 "eps": eps,
+
+                # Primary cash flow
                 "operating_cash_flow": operating_cf,
+
                 "capital_expenditure": (
                     abs(capex)
                     if capex is not None
                     else None
                 ),
+
                 "free_cash_flow": free_cash_flow,
 
-                "_ytd_operating_cash_flow": ytd_operating_cf,
+                # -------------------------------------------------
+                # YTD P&L
+                # -------------------------------------------------
+
+                "_ytd_revenue": ytd_revenue,
+
+                "_ytd_profit_before_tax": ytd_pbt,
+
+                "_ytd_net_income": ytd_net_income,
+
+                "_ytd_depreciation": ytd_depreciation,
+
+                "_ytd_finance_costs": ytd_finance_costs,
+
+                "_ytd_eps": ytd_eps,
+
+                # -------------------------------------------------
+                # YTD cash flow
+                # -------------------------------------------------
+
+                "_ytd_operating_cash_flow": (
+                    ytd_operating_cf
+                ),
+
                 "_ytd_capital_expenditure": (
                     abs(ytd_capex)
                     if ytd_capex is not None
                     else None
                 ),
+
                 "_ytd_free_cash_flow": ytd_fcf,
+
+                # -------------------------------------------------
+                # YTD dates
+                # -------------------------------------------------
+
                 "_ytd_start": (
                     contexts[ytd_context]["start"]
                     if ytd_context
                     else None
                 ),
+
                 "_ytd_end": (
                     contexts[ytd_context]["end"]
                     if ytd_context
                     else None
                 ),
+
+                # -------------------------------------------------
+                # Reported/source period dates
+                # -------------------------------------------------
+
                 "_cash_flow_start": (
                     contexts[context_id]["start"]
                 ),
+
                 "_cash_flow_end": (
                     contexts[context_id]["end"]
                 ),
+
+                "_period_start": (
+                    contexts[context_id]["start"]
+                ),
+
+                "_period_end": (
+                    contexts[context_id]["end"]
+                ),
+                "_pnl_context_type": (
+                    "quarter"
+                    if (
+                        75 <= (
+                            datetime.strptime(
+                                contexts[context_id]["end"],
+                                "%Y-%m-%d",
+                            ).date()
+                            - datetime.strptime(
+                                contexts[context_id]["start"],
+                                "%Y-%m-%d",
+                            ).date()
+                        ).days <= 105
+                        or (
+                            filing.period_end.month == 3
+                            and 160 <= (
+                                datetime.strptime(
+                                    contexts[context_id]["end"],
+                                    "%Y-%m-%d",
+                                ).date()
+                                - datetime.strptime(
+                                    contexts[context_id]["start"],
+                                    "%Y-%m-%d",
+                                ).date()
+                            ).days <= 200
+                            and contexts[context_id]["start"]
+                            >= f"{filing.period_end.year - 1}-10-01"
+                        )
+                    )
+                    else "ytd"
+                ),
+                "_pnl_start": contexts[context_id]["start"],
             }
 
             return statement
 
         # ---------------------------------------------------------
-        # Add balance sheet fields
+        # Build statements
         # ---------------------------------------------------------
+
         statements: list[dict[str, Any]] = []
 
         for context_id, period_type in [
@@ -614,6 +895,10 @@ class NSEFinancialClient:
 
             if statement is None:
                 continue
+
+            # -----------------------------------------------------
+            # Balance sheet
+            # -----------------------------------------------------
 
             if balance_context:
 
@@ -637,25 +922,47 @@ class NSEFinancialClient:
                     balance_context,
                 )
 
-                if current_debt is None and noncurrent_debt is None:
+                if (
+                    current_debt is None
+                    and noncurrent_debt is None
+                ):
                     statement["total_debt"] = None
-                else:
-                    statement["total_debt"] = ((current_debt or 0) + (noncurrent_debt or 0))
 
-                statement["cash_and_equivalents"] = numeric_value(
-                    "CashAndCashEquivalents",
-                    balance_context,
+                else:
+                    statement["total_debt"] = (
+                        (current_debt or 0)
+                        + (noncurrent_debt or 0)
+                    )
+
+                statement["cash_and_equivalents"] = (
+                    numeric_value(
+                        "CashAndCashEquivalents",
+                        balance_context,
+                    )
                 )
 
             else:
+
                 statement["total_assets"] = None
                 statement["total_equity"] = None
                 statement["total_debt"] = None
                 statement["cash_and_equivalents"] = None
 
-            statement["statement_scope"] = filing.statement_scope
-            statement["submission_type"] = filing.submission_type
-            statement["audit_status"] = filing.audit_status
+            # -----------------------------------------------------
+            # Filing metadata
+            # -----------------------------------------------------
+
+            statement["statement_scope"] = (
+                filing.statement_scope
+            )
+
+            statement["submission_type"] = (
+                filing.submission_type
+            )
+
+            statement["audit_status"] = (
+                filing.audit_status
+            )
 
             statement["reporting_standard"] = (
                 "Ind AS"
@@ -666,7 +973,11 @@ class NSEFinancialClient:
             )
 
             statement["source"] = "NSE"
-            statement["source_reference"] = filing.source_reference
+
+            statement["source_reference"] = (
+                filing.source_reference
+            )
+
             statement["source_url"] = filing.xbrl_url
 
             statements.append(statement)

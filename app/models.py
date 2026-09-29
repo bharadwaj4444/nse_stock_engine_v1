@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
@@ -82,7 +82,18 @@ class BenchmarkPrice(Base):
 
 class FinancialStatement(Base):
     __tablename__ = "financial_statements"
-
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "period_type",
+            "period_end",
+            "statement_scope",
+            "submission_type",
+            "source",
+            name="uq_financial_statement_identity",
+        ),
+    )
+    
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
     company_id: Mapped[int] = mapped_column(
