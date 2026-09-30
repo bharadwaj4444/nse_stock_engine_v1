@@ -6,11 +6,12 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select, func
+import pandas as pd
+from sqlalchemy import select, func, text
 from sqlalchemy.dialects.postgresql import insert
 
 from app.config import settings
-from app.db import SessionLocal
+from app.db import SessionLocal, engine
 from app.models import (
     Company,
     DailyPrice,
@@ -1652,3 +1653,224 @@ def ingest_nifty50_history(
         db.commit()
 
     return written
+
+def save_shareholding_filing(filing) -> int:
+    """
+    Persist one validated NSE shareholding filing.
+
+    The effective_date identifies the quarter.
+    If NSE later publishes a revised filing for the same quarter,
+    the existing row is replaced with the latest filing information.
+    """
+
+    with engine.begin() as conn:
+        company = conn.execute(
+            text(
+                """
+                SELECT id
+                FROM companies
+                WHERE nse_symbol = :symbol
+                """
+            ),
+            {
+                "symbol": filing.symbol,
+            },
+        ).mappings().first()
+
+        if company is None:
+            raise ValueError(
+                f"Company not found for NSE symbol: {filing.symbol}"
+            )
+
+        company_id = company["id"]
+
+        result = conn.execute(
+            text(
+                """
+                INSERT INTO share_capital (
+                    company_id,
+                    effective_date,
+                    shares_outstanding,
+                    share_type,
+                    filing_date,
+                    source,
+                    source_url,
+                    calculation_method,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    :company_id,
+                    :effective_date,
+                    :shares_outstanding,
+                    :share_type,
+                    :filing_date,
+                    :source,
+                    :source_url,
+                    :calculation_method,
+                    NOW(),
+                    NOW()
+                )
+                ON CONFLICT (
+                    company_id,
+                    effective_date,
+                    share_type
+                )
+                DO UPDATE SET
+                    shares_outstanding = EXCLUDED.shares_outstanding,
+                    filing_date = EXCLUDED.filing_date,
+                    source = EXCLUDED.source,
+                    source_url = EXCLUDED.source_url,
+                    calculation_method = EXCLUDED.calculation_method,
+                    updated_at = NOW()
+                RETURNING id
+                """
+            ),
+            {
+                "company_id": company_id,
+                "effective_date": filing.effective_date,
+                "shares_outstanding": filing.total_shares,
+                "share_type": "EQUITY",
+                "filing_date": filing.submission_date,
+                "source": filing.source,
+                "source_url": filing.xbrl_url,
+                "calculation_method": filing.calculation_method,
+            },
+        )
+
+        return int(result.scalar_one())
+
+def ingest_shareholding_for_company(
+    symbol: str,
+    *,
+    latest_only: bool = False,
+) -> int:
+    """
+    Download NSE shareholding filings and persist them.
+    """
+
+    from app.sources.nse_shareholding import NSEShareholdingClient
+
+    client = NSEShareholdingClient()
+
+    filings = client.get_shareholding_filings(
+        symbol,
+        latest_only=latest_only,
+    )
+
+    written = 0
+
+    for filing in filings:
+        save_shareholding_filing(filing)
+        written += 1
+
+    return written
+
+# ============================================================
+# Shareholding ingestion for complete universe
+# ============================================================
+
+def ingest_shareholding_for_universe(
+    *,
+    latest_only: bool = True,
+    delay_seconds: float = 1.0,
+    limit: int | None = None,
+) -> int:
+    
+    """
+    Ingest NSE shareholding data for all active NSE companies.
+
+    Args:
+        latest_only:
+            True  -> download only the latest shareholding filing
+                     for each company.
+            False -> download all available historical filings.
+
+        delay_seconds:
+            Delay between companies to reduce NSE request pressure.
+
+    Returns:
+        Total number of share-capital rows written.
+    """
+
+    import time
+
+    # --------------------------------------------------------
+    # Load active NSE universe.
+    # --------------------------------------------------------
+    with SessionLocal() as db:
+        symbols = (
+            db.execute(
+                select(
+                    Company.nse_symbol
+                )
+                .where(
+                    Company.is_active.is_(True),
+                    Company.nse_symbol.is_not(None),
+                )
+                .order_by(
+                    Company.nse_symbol
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        if limit is not None:
+            symbols = symbols[:limit]
+
+    total_written = 0
+    failed = 0
+
+    print(
+        f"Shareholding ingestion: "
+        f"{len(symbols)} companies"
+    )
+
+    # --------------------------------------------------------
+    # Process companies one at a time.
+    # --------------------------------------------------------
+    for index, symbol in enumerate(
+        symbols,
+        start=1,
+    ):
+        try:
+            written = ingest_shareholding_for_company(
+                symbol=symbol,
+                latest_only=latest_only,
+            )
+
+            total_written += written
+
+            print(
+                f"[{index}/{len(symbols)}] "
+                f"{symbol}: "
+                f"{written} filings"
+            )
+
+        except Exception as exc:
+            failed += 1
+
+            print(
+                f"[{index}/{len(symbols)}] "
+                f"{symbol}: FAILED: {exc}"
+            )
+
+        if delay_seconds > 0:
+            time.sleep(delay_seconds)
+
+    # --------------------------------------------------------
+    # Summary.
+    # --------------------------------------------------------
+    print()
+    print(
+        f"Completed: {len(symbols)}"
+    )
+    print(
+        f"Failed:    {failed}"
+    )
+    print(
+        f"Rows:      {total_written}"
+    )
+
+    return total_written
