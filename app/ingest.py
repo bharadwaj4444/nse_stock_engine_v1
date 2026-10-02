@@ -21,6 +21,7 @@ from app.models import (
 )
 from app.sources.nse import NSEClient
 from app.sources.nse_financials import NSEFinancialClient
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 # ============================================================
@@ -1771,106 +1772,122 @@ def ingest_shareholding_for_company(
 # ============================================================
 
 def ingest_shareholding_for_universe(
-    *,
     latest_only: bool = True,
-    delay_seconds: float = 1.0,
+    delay_seconds: float = 0.0,
     limit: int | None = None,
+    workers: int = 5,
 ) -> int:
-    
     """
-    Ingest NSE shareholding data for all active NSE companies.
+    Ingest shareholding data for the NSE universe concurrently.
 
     Args:
         latest_only:
-            True  -> download only the latest shareholding filing
-                     for each company.
-            False -> download all available historical filings.
-
+            If True, ingest only the latest filing for each company.
         delay_seconds:
-            Delay between companies to reduce NSE request pressure.
+            Optional delay applied by each worker after processing a company.
+            Recommended: 0.0 initially when using bounded concurrency.
+        limit:
+            Optional limit for testing.
+        workers:
+            Number of concurrent NSE workers.
 
     Returns:
-        Total number of share-capital rows written.
+        Total number of shareholding rows written.
     """
-
     import time
 
-    # --------------------------------------------------------
-    # Load active NSE universe.
-    # --------------------------------------------------------
-    with SessionLocal() as db:
-        symbols = (
-            db.execute(
-                select(
-                    Company.nse_symbol
-                )
-                .where(
-                    Company.is_active.is_(True),
-                    Company.nse_symbol.is_not(None),
-                )
-                .order_by(
-                    Company.nse_symbol
-                )
-            )
-            .scalars()
-            .all()
-        )
+    if workers < 1:
+        raise ValueError("workers must be >= 1")
 
-        if limit is not None:
-            symbols = symbols[:limit]
+    if delay_seconds < 0:
+        raise ValueError("delay_seconds must be >= 0")
 
-    total_written = 0
-    failed = 0
-
-    print(
-        f"Shareholding ingestion: "
-        f"{len(symbols)} companies"
+    query = text(
+        """
+        SELECT nse_symbol
+        FROM companies
+        WHERE is_active IS TRUE
+          AND nse_symbol IS NOT NULL
+        ORDER BY nse_symbol
+        """
     )
 
-    # --------------------------------------------------------
-    # Process companies one at a time.
-    # --------------------------------------------------------
-    for index, symbol in enumerate(
-        symbols,
-        start=1,
-    ):
+    with engine.begin() as conn:
+        symbols = [
+            row["nse_symbol"]
+            for row in conn.execute(query).mappings().all()
+        ]
+
+    if limit is not None:
+        symbols = symbols[:limit]
+
+    total = len(symbols)
+
+    if total == 0:
+        print("No companies to process.")
+        return 0
+
+    def process_one(symbol: str) -> tuple[str, int, str | None]:
+        """
+        Process one company inside a worker thread.
+        """
         try:
             written = ingest_shareholding_for_company(
-                symbol=symbol,
+                symbol,
                 latest_only=latest_only,
             )
 
-            total_written += written
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
 
-            print(
-                f"[{index}/{len(symbols)}] "
-                f"{symbol}: "
-                f"{written} filings"
-            )
+            return symbol, written, None
 
         except Exception as exc:
-            failed += 1
+            return symbol, 0, str(exc)
 
-            print(
-                f"[{index}/{len(symbols)}] "
-                f"{symbol}: FAILED: {exc}"
-            )
+    completed = 0
+    failed = 0
+    total_written = 0
 
-        if delay_seconds > 0:
-            time.sleep(delay_seconds)
+    print(
+        f"Starting shareholding ingestion: "
+        f"{total} companies, {workers} workers"
+    )
 
-    # --------------------------------------------------------
-    # Summary.
-    # --------------------------------------------------------
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(process_one, symbol): symbol
+            for symbol in symbols
+        }
+
+        for future in as_completed(futures):
+            symbol = futures[future]
+
+            try:
+                result_symbol, written, error = future.result()
+            except Exception as exc:
+                result_symbol = symbol
+                written = 0
+                error = str(exc)
+
+            completed += 1
+            total_written += written
+
+            if error:
+                failed += 1
+                print(
+                    f"[{completed}/{total}] "
+                    f"{result_symbol} FAILED: {error}"
+                )
+            else:
+                print(
+                    f"[{completed}/{total}] "
+                    f"{result_symbol}: {written}"
+                )
+
     print()
-    print(
-        f"Completed: {len(symbols)}"
-    )
-    print(
-        f"Failed:    {failed}"
-    )
-    print(
-        f"Rows:      {total_written}"
-    )
+    print(f"Completed: {completed}")
+    print(f"Failed:    {failed}")
+    print(f"Rows:      {total_written}")
 
     return total_written

@@ -69,6 +69,18 @@ def _absolute_xbrl_url(value: str) -> str:
     if not value:
         return ""
 
+    if value.upper() in {
+        "-",
+        "NA",
+        "N/A",
+        "NULL",
+        "NONE",
+    }:
+        return ""
+
+    if value.rstrip("/").endswith("/-"):
+        return ""
+
     if value.startswith("http://") or value.startswith("https://"):
         return value
 
@@ -158,16 +170,13 @@ def _number_of_shares_facts(
 
 def _extract_total_shares(xml_bytes: bytes) -> int | None:
     """
-    Extract total equity shares from the SHP XBRL.
+    Extract total shares from the SHP XBRL.
 
-    Primary method:
-        Promoter shares + Public shares
-
-    This matches the SHP roll-up where promoter/promoter-group
-    and public shareholding together represent total shares.
-
-    Fallback:
-        Look for an undimensioned NumberOfShares fact.
+    Priority:
+    1. Explicit NumberOfShares in ShareholdingPattern context.
+    2. NumberOfShares associated with ShareholdingPatternMember.
+    3. Undimensioned NumberOfShares.
+    4. Promoter + Public shareholding fallback.
     """
 
     try:
@@ -178,6 +187,38 @@ def _extract_total_shares(xml_bytes: bytes) -> int | None:
     contexts = _context_members(root)
     facts = _number_of_shares_facts(root)
 
+    # 1. Primary: explicit NumberOfShares in the standard
+    # ShareholdingPattern context.
+    for context_ref, value in facts:
+        if context_ref == "ShareholdingPattern_ContextI":
+            return value
+
+    # 2. Some issuers may use a different context ID but
+    # still associate NumberOfShares with ShareholdingPatternMember.
+    shareholding_pattern_members = {
+        "in-bse-shp:ShareholdingPatternMember",
+        "ShareholdingPatternMember",
+    }
+
+    for context_ref, value in facts:
+        members = contexts.get(context_ref, set())
+
+        if any(member in shareholding_pattern_members for member in members):
+            return value
+
+    # 3. Secondary fallback: undimensioned NumberOfShares.
+    candidates: list[int] = []
+
+    for context_ref, value in facts:
+        members = contexts.get(context_ref, set())
+
+        if not members:
+            candidates.append(value)
+
+    if candidates:
+        return max(candidates)
+
+    # 4. Final fallback: promoter + public shareholding.
     promoter_members = {
         "in-bse-shp:ShareholdingOfPromoterAndPromoterGroupMember",
         "ShareholdingOfPromoterAndPromoterGroupMember",
@@ -209,20 +250,7 @@ def _extract_total_shares(xml_bytes: bytes) -> int | None:
     if promoter_values and public_values:
         return max(promoter_values) + max(public_values)
 
-    # Fallback: an undimensioned total NumberOfShares fact.
-    candidates: list[int] = []
-
-    for context_ref, value in facts:
-        members = contexts.get(context_ref, set())
-
-        if not members:
-            candidates.append(value)
-
-    if candidates:
-        return max(candidates)
-
     return None
-
 
 def _extract_total_shares_regex(xml_bytes: bytes) -> int | None:
     """
@@ -396,6 +424,108 @@ class NSEShareholdingClient:
 
         rows = self.get_filings(symbol)
 
+        # ---------------------------------------------------------
+        # Latest-only path:
+        #
+        # IMPORTANT:
+        # Do NOT download historical XBRL files.
+        # First identify the latest filing from metadata,
+        # then download only that XBRL.
+        # ---------------------------------------------------------
+        if latest_only:
+            candidates: list[dict[str, Any]] = []
+
+            for row in rows:
+                effective_date = _parse_date(
+                    row.get("date")
+                )
+
+                if effective_date is None:
+                    continue
+
+                xbrl_url = _absolute_xbrl_url(
+                    row.get("xbrl") or ""
+                )
+
+                if not xbrl_url:
+                    continue
+
+                submission_date = _parse_date(
+                    row.get("submissionDate")
+                )
+
+                revision_date = _parse_date(
+                    row.get("revisionDate")
+                )
+
+                candidates.append(
+                    {
+                        "row": row,
+                        "effective_date": effective_date,
+                        "xbrl_url": xbrl_url,
+                        "submission_date": submission_date,
+                        "revision_date": revision_date,
+                    }
+                )
+
+            if not candidates:
+                return []
+
+            # Newest effective date first.
+            # For the same effective date, prefer the newest
+            # submission/revision.
+            candidates.sort(
+                key=lambda item: (
+                    item["effective_date"],
+                    item["submission_date"] or date.min,
+                    item["revision_date"] or date.min,
+                ),
+                reverse=True,
+            )
+
+            latest = candidates[0]
+
+            effective_date = latest["effective_date"]
+            xbrl_url = latest["xbrl_url"]
+            submission_date = latest["submission_date"]
+            revision_date = latest["revision_date"]
+
+            # Download ONLY the latest XBRL.
+            xml_bytes = self._download_xbrl(xbrl_url)
+
+            total_shares = _extract_total_shares(xml_bytes)
+
+            if total_shares is None or total_shares <= 0:
+                return []
+
+            row = latest["row"]
+
+            revised_value = str(
+                row.get("revisedData") or ""
+            ).strip().upper()
+
+            filing = ShareholdingFiling(
+                symbol=symbol,
+                effective_date=effective_date,
+                submission_date=submission_date,
+                revision_date=revision_date,
+                revised=revised_value in {
+                    "Y",
+                    "YES",
+                    "TRUE",
+                },
+                xbrl_url=xbrl_url,
+                total_shares=total_shares,
+            )
+
+            return [filing]
+
+        # ---------------------------------------------------------
+        # Full-history path.
+        #
+        # This intentionally downloads every valid XBRL because
+        # historical share-capital data is required.
+        # ---------------------------------------------------------
         result: list[ShareholdingFiling] = []
 
         for row in rows:
@@ -413,7 +543,16 @@ class NSEShareholdingClient:
             if not xbrl_url:
                 continue
 
-            xml_bytes = self._download_xbrl(xbrl_url)
+            try:
+                xml_bytes = self._download_xbrl(xbrl_url)
+            except requests.HTTPError as exc:
+                # Historical NSE archive entries can contain dead
+                # XBRL URLs. Skip them for full-history ingestion.
+                print(
+                    f"{symbol}: skipping XBRL "
+                    f"{xbrl_url}: {exc}"
+                )
+                continue
 
             total_shares = _extract_total_shares(xml_bytes)
 
@@ -437,7 +576,11 @@ class NSEShareholdingClient:
                 effective_date=effective_date,
                 submission_date=submission_date,
                 revision_date=revision_date,
-                revised=revised_value in {"Y", "YES", "TRUE"},
+                revised=revised_value in {
+                    "Y",
+                    "YES",
+                    "TRUE",
+                },
                 xbrl_url=xbrl_url,
                 total_shares=total_shares,
             )
@@ -459,7 +602,9 @@ class NSEShareholdingClient:
         deduped: dict[date, ShareholdingFiling] = {}
 
         for filing in result:
-            existing = deduped.get(filing.effective_date)
+            existing = deduped.get(
+                filing.effective_date
+            )
 
             if existing is None:
                 deduped[filing.effective_date] = filing
@@ -483,9 +628,6 @@ class NSEShareholdingClient:
             key=lambda x: x.effective_date,
             reverse=True,
         )
-
-        if latest_only:
-            return result[:1]
 
         return result
 
