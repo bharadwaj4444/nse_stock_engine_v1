@@ -9,7 +9,7 @@ from app.db import SessionLocal
 from app.fundamental_periods import find_qoq_previous, find_yoy_previous
 from app.fundamentals import calculate_fundamental_metrics
 from app.models import Company, FinancialStatement
-
+from app.ttm import get_latest_ttm_as_of
 
 def _statement_dict(row: FinancialStatement) -> dict[str, Any]:
     return {
@@ -40,6 +40,27 @@ def _statement_dict(row: FinancialStatement) -> dict[str, Any]:
         "source_url": row.source_url,
     }
 
+def _ttm_dict(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "company_id": row["company_id"],
+        "period_end": row["period_end"],
+        "filing_date": row["latest_filing_date"],
+        "revenue": row["revenue_ttm"],
+        "ebitda": row["ebitda_ttm"],
+        "ebit": row["ebit_ttm"],
+        "profit_before_tax": row["profit_before_tax_ttm"],
+        "net_income": row["net_income_ttm"],
+        "eps": row["eps_ttm"],
+        "total_assets": row["total_assets"],
+        "total_equity": row["total_equity"],
+        "total_debt": row["total_debt"],
+        "cash_and_equivalents": row["cash_and_equivalents"],
+        "operating_cash_flow": row["operating_cash_flow_ttm"],
+        "capital_expenditure": row["capital_expenditure_ttm"],
+        "free_cash_flow": row["free_cash_flow_ttm"],
+        "statement_scope": row["statement_scope"],
+        "source": row["source"],
+    }
 
 def _current_metrics(
     current: dict[str, Any],
@@ -86,6 +107,7 @@ def get_fundamental_analysis(
     period_end: date | None = None,
     period_type: str = "quarterly",
     statement_scope: str = "Consolidated",
+    as_of_date: date | None = None,
 ) -> dict[str, Any]:
     """
     Calculate fundamental analysis for a company statement.
@@ -107,21 +129,32 @@ def get_fundamental_analysis(
             raise ValueError(
                 f"Company not found: {symbol.upper()}"
             )
+        
+        conditions = [
+            FinancialStatement.company_id == company.id,
+            FinancialStatement.period_type == period_type,
+            FinancialStatement.statement_scope == statement_scope,
+        ]
+
+        if period_end is not None:
+            conditions.append(
+                FinancialStatement.period_end == period_end
+            )
+
+        if as_of_date is not None:
+            conditions.append(
+                FinancialStatement.filing_date <= as_of_date
+            )
 
         query = (
             select(FinancialStatement)
-            .where(
-                FinancialStatement.company_id == company.id,
-                FinancialStatement.period_type == period_type,
-                FinancialStatement.statement_scope == statement_scope,
+            .where(*conditions)
+            .order_by(
+                FinancialStatement.period_end.desc(),
+                FinancialStatement.filing_date.desc(),
+                FinancialStatement.id.desc(),
             )
-            .order_by(FinancialStatement.period_end.desc())
         )
-
-        if period_end is not None:
-            query = query.where(
-                FinancialStatement.period_end == period_end
-            )
 
         current_row = session.scalars(query).first()
 
@@ -136,10 +169,33 @@ def get_fundamental_analysis(
                 )
             )
 
+        history_conditions = [
+            FinancialStatement.company_id == company.id,
+            FinancialStatement.period_type == period_type,
+            FinancialStatement.statement_scope == statement_scope,
+        ]
+
+        ttm_row = None
+
+        if as_of_date is not None:
+            history_conditions.append(
+                FinancialStatement.filing_date <= as_of_date
+            )
+            ttm_row = get_latest_ttm_as_of(
+                    company_id=company.id,
+                    statement_scope=statement_scope,
+                    as_of_date=as_of_date,
+                )
+        
+
         all_rows = list(
             session.scalars(
-                select(FinancialStatement).where(
-                    FinancialStatement.company_id == company.id
+                select(FinancialStatement)
+                .where(*history_conditions)
+                .order_by(
+                    FinancialStatement.period_end,
+                    FinancialStatement.filing_date,
+                    FinancialStatement.id,
                 )
             )
         )
@@ -151,6 +207,9 @@ def get_fundamental_analysis(
         }
 
     current = _statement_dict(current_row)
+
+    ttm = _ttm_dict(ttm_row) if ttm_row is not None else None
+
     statements = [_statement_dict(row) for row in all_rows]
 
     yoy_previous = find_yoy_previous(
@@ -168,6 +227,7 @@ def get_fundamental_analysis(
         "current": {
             "period_end": current["period_end"],
             "period_type": current["period_type"],
+            "filing_date": current["filing_date"],
             "statement_scope": current["statement_scope"],
             "revenue": current["revenue"],
             "ebitda": current["ebitda"],
@@ -191,6 +251,29 @@ def get_fundamental_analysis(
         "qoq": _comparison_metrics(
             current,
             qoq_previous,
+        ),
+        "ttm": (
+            {
+                "period_end": ttm["period_end"],
+                "filing_date": ttm["filing_date"],
+                "statement_scope": ttm["statement_scope"],
+                "revenue": ttm["revenue"],
+                "ebitda": ttm["ebitda"],
+                "ebit": ttm["ebit"],
+                "profit_before_tax": ttm["profit_before_tax"],
+                "net_income": ttm["net_income"],
+                "eps": ttm["eps"],
+                "total_assets": ttm["total_assets"],
+                "total_equity": ttm["total_equity"],
+                "total_debt": ttm["total_debt"],
+                "cash_and_equivalents": ttm["cash_and_equivalents"],
+                "operating_cash_flow": ttm["operating_cash_flow"],
+                "capital_expenditure": ttm["capital_expenditure"],
+                "free_cash_flow": ttm["free_cash_flow"],
+                "metrics": _current_metrics(ttm),
+            }
+            if ttm is not None
+            else None
         ),
     }
 

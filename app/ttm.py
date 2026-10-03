@@ -131,9 +131,16 @@ def _calculate_ttm_row(
     """
     latest = quarters[-1]
 
+    filing_dates = [
+        row["filing_date"]
+        for row in quarters
+        if row["filing_date"] is not None
+    ]
+
     result: dict[str, Any] = {
         "company_id": latest["company_id"],
         "period_end": latest["period_end"],
+        "latest_filing_date": max(filing_dates) if filing_dates else None,
         "statement_scope": latest["statement_scope"],
         "source": "DERIVED",
         "source_periods": ",".join(
@@ -275,6 +282,7 @@ def _upsert_ttm_rows(rows: list[dict[str, Any]]) -> int:
         INSERT INTO ttm_financials (
             company_id,
             period_end,
+            latest_filing_date,
             statement_scope,
             revenue_ttm,
             ebitda_ttm,
@@ -296,6 +304,7 @@ def _upsert_ttm_rows(rows: list[dict[str, Any]]) -> int:
         VALUES (
             :company_id,
             :period_end,
+            :latest_filing_date,
             :statement_scope,
             :revenue_ttm,
             :ebitda_ttm,
@@ -316,6 +325,7 @@ def _upsert_ttm_rows(rows: list[dict[str, Any]]) -> int:
         )
         ON CONFLICT (company_id, period_end, statement_scope)
         DO UPDATE SET
+            latest_filing_date = EXCLUDED.latest_filing_date,
             revenue_ttm = EXCLUDED.revenue_ttm,
             ebitda_ttm = EXCLUDED.ebitda_ttm,
             ebit_ttm = EXCLUDED.ebit_ttm,
@@ -361,37 +371,98 @@ def build_ttm_for_all(
     statement_scope: str | None = None,
 ) -> int:
     """
-    Build TTM rows for the complete quarterly financial dataset.
+    Build and persist TTM rows company-by-company.
 
-    This intentionally processes companies in batches of SQL reads rather
-    than issuing one database query per TTM period.
+    Processing one company/scope at a time keeps memory usage bounded and
+    preserves the existing TTM calculation and Original/Revision logic.
     """
-    rows = _load_quarterly_statements(
-        company_id=None,
-        statement_scope=statement_scope,
+    conditions = ["period_type = 'quarterly'"]
+    params: dict[str, Any] = {}
+
+    if statement_scope is not None:
+        conditions.append("statement_scope = :statement_scope")
+        params["statement_scope"] = statement_scope
+
+    sql = f"""
+        SELECT DISTINCT
+            company_id,
+            statement_scope
+        FROM financial_statements
+        WHERE {" AND ".join(conditions)}
+        ORDER BY company_id, statement_scope
+    """
+
+    with engine.connect() as conn:
+        company_scopes = conn.execute(
+            text(sql),
+            params,
+        ).all()
+
+    total = 0
+
+    for company_id, scope in company_scopes:
+        total += build_ttm_for_company(
+            company_id=int(company_id),
+            statement_scope=scope,
+        )
+
+    return total
+
+def get_latest_ttm_as_of(
+    company_id: int,
+    statement_scope: str,
+    as_of_date: date,
+) -> dict[str, Any] | None:
+    """
+    Return the latest TTM row that was available as of `as_of_date`.
+
+    A TTM row is eligible only when its latest_filing_date is on or
+    before the requested as-of date. Among eligible rows, the latest
+    period_end is selected.
+
+    This prevents look-ahead bias in historical valuation/analysis.
+    """
+    sql = text(
+        """
+        SELECT
+            id,
+            company_id,
+            period_end,
+            latest_filing_date,
+            statement_scope,
+            revenue_ttm,
+            ebitda_ttm,
+            ebit_ttm,
+            profit_before_tax_ttm,
+            net_income_ttm,
+            eps_ttm,
+            operating_cash_flow_ttm,
+            capital_expenditure_ttm,
+            free_cash_flow_ttm,
+            total_assets,
+            total_equity,
+            total_debt,
+            cash_and_equivalents,
+            calculation_method,
+            source_periods,
+            source
+        FROM ttm_financials
+        WHERE company_id = :company_id
+          AND statement_scope = :statement_scope
+          AND latest_filing_date <= :as_of_date
+        ORDER BY period_end DESC
+        LIMIT 1
+        """
     )
 
-    grouped: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
+    with engine.connect() as conn:
+        row = conn.execute(
+            sql,
+            {
+                "company_id": company_id,
+                "statement_scope": statement_scope,
+                "as_of_date": as_of_date,
+            },
+        ).mappings().first()
 
-    for row in rows:
-        grouped[
-            (
-                int(row["company_id"]),
-                row["statement_scope"],
-            )
-        ].append(row)
-
-    ttm_rows: list[dict[str, Any]] = []
-
-    for quarters_all in grouped.values():
-        quarters_all.sort(key=lambda r: r["period_end"])
-
-        for index in range(3, len(quarters_all)):
-            window = quarters_all[index - 3 : index + 1]
-
-            if not _is_complete_quarter_sequence(window):
-                continue
-
-            ttm_rows.append(_calculate_ttm_row(window))
-
-    return _upsert_ttm_rows(ttm_rows)
+    return dict(row) if row is not None else None

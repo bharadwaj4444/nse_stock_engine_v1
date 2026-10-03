@@ -415,9 +415,12 @@ class TTMFinancial(Base):
     period_end: Mapped[date] = mapped_column(
         Date,
         nullable=False,
-        
     )
 
+    latest_filing_date: Mapped[date | None] = mapped_column(
+        Date,
+    )
+    
     statement_scope: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -718,6 +721,8 @@ class FinancialRawFiling(Base):
         nullable=False,
     )
 
+    filing_date: Mapped[date | None] = mapped_column(Date)
+    
     statement_scope: Mapped[str] = mapped_column(
         String(50),
         nullable=False,

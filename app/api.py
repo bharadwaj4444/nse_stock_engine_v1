@@ -40,6 +40,7 @@ def fundamentals(
     period_end: date | None = None,
     period_type: str = "quarterly",
     statement_scope: str = "Consolidated",
+    as_of_date: date | None = None,
 ):
     try:
         return get_fundamental_analysis(
@@ -47,6 +48,7 @@ def fundamentals(
             period_end=period_end,
             period_type=period_type,
             statement_scope=statement_scope,
+            as_of_date=as_of_date,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

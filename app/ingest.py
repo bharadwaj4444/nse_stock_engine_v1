@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from decimal import Decimal
 import hashlib
@@ -1490,6 +1490,27 @@ def ingest_financial_filings(
 
     return total_statements
 
+def _effective_filing_date(
+    broadcast_datetime: str | None,
+    revised_datetime: str | None,
+) -> date | None:
+    value = revised_datetime or broadcast_datetime
+
+    if not value:
+        return None
+
+    for fmt in (
+        "%d-%b-%Y %H:%M:%S",
+        "%d-%b-%Y",
+        "%d-%m-%Y %H:%M:%S",
+        "%d-%m-%Y",
+    ):
+        try:
+            return datetime.strptime(value.strip(), fmt).date()
+        except ValueError:
+            continue
+
+    return None
 
 # ============================================================
 # Financial ingestion for complete universe
@@ -2232,6 +2253,10 @@ def catalog_raw_financial_filings() -> int:
                 company_id=company_id,
                 symbol=symbol,
                 period_end=filing.period_end,
+                filing_date=_effective_filing_date(
+                    filing.broadcast_datetime,
+                    filing.revised_datetime,
+                ),
                 statement_scope=filing.statement_scope,
                 submission_type=filing.submission_type,
                 audit_status=filing.audit_status,

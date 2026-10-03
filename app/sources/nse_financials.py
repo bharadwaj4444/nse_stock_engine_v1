@@ -163,7 +163,12 @@ class NSEFinancialClient:
         filing: FinancialFiling,
     ) -> list[dict[str, Any]]:
 
-        root = ET.fromstring(xml_text)
+        try:
+            root = ET.fromstring(xml_text)
+        except ET.ParseError as exc:
+            raise ValueError(
+                f"MALFORMED_XML: {exc}"
+            ) from exc
 
         def local_name(tag: str) -> str:
             return tag.split("}")[-1]
@@ -499,6 +504,39 @@ class NSEFinancialClient:
             annual_context = annual_candidates[0][1]
 
         # ---------------------------------------------------------
+        # No target-period context
+        #
+        # The NSE filing metadata may occasionally reference a
+        # period that does not exist in the supplied XBRL.
+        # Do not reinterpret an older/newer period as this filing.
+        # ---------------------------------------------------------
+        if not duration_contexts and not instant_contexts:
+            available_end_dates = sorted(
+                {
+                    ctx["end"]
+                    for ctx in contexts.values()
+                    if ctx.get("end")
+                }
+            )
+
+            available_instant_dates = sorted(
+                {
+                    ctx["instant"]
+                    for ctx in contexts.values()
+                    if ctx.get("instant")
+                }
+            )
+
+            raise ValueError(
+                "NO_TARGET_PERIOD_CONTEXT: "
+                f"requested={period_end}; "
+                f"available_end_dates="
+                f"{','.join(available_end_dates) or '-'}; "
+                f"available_instant_dates="
+                f"{','.join(available_instant_dates) or '-'}"
+            )
+
+        # ---------------------------------------------------------
         # Balance sheet context
         #
         # Multiple non-dimensional instant contexts can exist.
@@ -517,7 +555,7 @@ class NSEFinancialClient:
                 "BorrowingsNoncurrent",
             }
 
-            best_score = -1
+            best_score = 0
 
             for context_id, ctx in instant_contexts:
 
