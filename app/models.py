@@ -375,6 +375,122 @@ class MarketMetric(Base):
         server_default=func.now(),
     )
 
+class ValuationMetric(Base):
+    __tablename__ = "valuation_metrics"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "valuation_date",
+            "statement_scope",
+            name="uq_valuation_metrics_identity",
+        ),
+        Index(
+            "ix_valuation_metrics_company_date",
+            "company_id",
+            "valuation_date",
+        ),
+        Index(
+            "ix_valuation_metrics_valuation_date",
+            "valuation_date",
+        ),
+        Index(
+            "ix_valuation_metrics_scope_date",
+            "statement_scope",
+            "valuation_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    company_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    valuation_date: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    statement_scope: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+    )
+
+    # Market value
+    market_cap: Mapped[Decimal | None] = mapped_column(
+        Numeric(30, 4)
+    )
+
+    enterprise_value: Mapped[Decimal | None] = mapped_column(
+        Numeric(30, 4)
+    )
+
+    # Point-in-time TTM provenance
+    ttm_period_end: Mapped[date | None] = mapped_column(Date)
+
+    ttm_filing_date: Mapped[date | None] = mapped_column(Date)
+
+    # Valuation multiples
+    pe_ratio: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 6)
+    )
+
+    price_to_sales: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 6)
+    )
+
+    price_to_fcf: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 6)
+    )
+
+    ev_to_ebitda: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 6)
+    )
+
+    ev_to_sales: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 6)
+    )
+
+    # Valuation yields
+    earnings_yield: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 6)
+    )
+
+    fcf_yield: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 6)
+    )
+
+    # Provenance
+    calculation_method: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+
+    source: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="DERIVED",
+        server_default="DERIVED",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
 
 class TTMFinancial(Base):
     __tablename__ = "ttm_financials"
