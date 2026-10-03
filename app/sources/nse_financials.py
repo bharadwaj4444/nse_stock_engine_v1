@@ -548,6 +548,9 @@ class NSEFinancialClient:
 
             # -----------------------------------------------------
             # Primary period values
+            #
+            # Normal companies use standard Ind AS concepts.
+            # Banking filings use a different XBRL taxonomy.
             # -----------------------------------------------------
 
             revenue = numeric_value(
@@ -574,6 +577,37 @@ class NSEFinancialClient:
                 "FinanceCosts",
                 context_id,
             )
+
+            # -----------------------------------------------------
+            # Banking XBRL fallback
+            #
+            # HDFCBANK / ICICIBANK-style banking filings use:
+            #
+            #   Income
+            #   ProfitLossFromOrdinaryActivitiesBeforeTax
+            #   ProfitLossAfterTaxesMinorityInterestAndShareOfProfitLossOfAssociates
+            #
+            # Do not map banking EBITDA/EBIT because those concepts
+            # are not economically equivalent to industrial EBITDA/EBIT.
+            # -----------------------------------------------------
+
+            if revenue is None:
+                revenue = numeric_value(
+                    "Income",
+                    context_id,
+                )
+
+            if pbt is None:
+                pbt = numeric_value(
+                    "ProfitLossFromOrdinaryActivitiesBeforeTax",
+                    context_id,
+                )
+
+            if net_income is None:
+                net_income = numeric_value(
+                    "ProfitLossAfterTaxesMinorityInterestAndShareOfProfitLossOfAssociates",
+                    context_id,
+                )
 
             # -----------------------------------------------------
             # Primary cash flow
@@ -629,6 +663,19 @@ class NSEFinancialClient:
                 context_id,
             )
 
+            # Banking taxonomy fallback.
+            if eps is None:
+                eps = numeric_value(
+                    "BasicEarningsPerShareAfterExtraordinaryItems",
+                    context_id,
+                )
+
+            if eps is None:
+                eps = numeric_value(
+                    "BasicEarningsPerShareBeforeExtraordinaryItems",
+                    context_id,
+                )
+
             # -----------------------------------------------------
             # Derived P&L
             # -----------------------------------------------------
@@ -636,21 +683,19 @@ class NSEFinancialClient:
             ebit = None
             ebitda = None
 
-            if pbt is not None:
-
-                ebit = pbt
-
-                if finance_costs is not None:
-                    ebit += finance_costs
-
+            # Only derive EBIT/EBITDA when the conventional
+            # industrial concepts required for the calculation exist.
+            #
+            # Banking filings do not use EBITDA in the same economic
+            # sense, so PBT must NOT be treated as EBIT.
             if (
-                ebit is not None
-                and depreciation is not None
+                pbt is not None
+                and finance_costs is not None
             ):
-                ebitda = (
-                    ebit
-                    + depreciation
-                )
+                ebit = pbt + finance_costs
+
+                if depreciation is not None:
+                    ebitda = ebit + depreciation
 
             # -----------------------------------------------------
             # Direct-period FCF
@@ -701,6 +746,25 @@ class NSEFinancialClient:
                     ytd_context,
                 )
 
+                # Banking XBRL fallback.
+                if ytd_revenue is None:
+                    ytd_revenue = numeric_value(
+                        "Income",
+                        ytd_context,
+                    )
+
+                if ytd_pbt is None:
+                    ytd_pbt = numeric_value(
+                        "ProfitLossFromOrdinaryActivitiesBeforeTax",
+                        ytd_context,
+                    )
+
+                if ytd_net_income is None:
+                    ytd_net_income = numeric_value(
+                        "ProfitLossAfterTaxesMinorityInterestAndShareOfProfitLossOfAssociates",
+                        ytd_context,
+                    )
+
                 ytd_depreciation = numeric_value(
                     "DepreciationDepletionAndAmortisationExpense",
                     ytd_context,
@@ -715,6 +779,18 @@ class NSEFinancialClient:
                     "BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations",
                     ytd_context,
                 )
+
+                if ytd_eps is None:
+                    ytd_eps = numeric_value(
+                        "BasicEarningsPerShareAfterExtraordinaryItems",
+                        ytd_context,
+                    )
+
+                if ytd_eps is None:
+                    ytd_eps = numeric_value(
+                        "BasicEarningsPerShareBeforeExtraordinaryItems",
+                        ytd_context,
+                    )
 
                 ytd_operating_cf = numeric_value(
                     "CashFlowsFromUsedInOperatingActivities",

@@ -9,6 +9,7 @@ from typing import Any
 import pandas as pd
 from sqlalchemy import select, func, text
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import SessionLocal, engine
@@ -18,10 +19,17 @@ from app.models import (
     FinancialStatement,
     IngestionRun,
     BenchmarkPrice,
+    FinancialRawFiling,
 )
 from app.sources.nse import NSEClient
-from app.sources.nse_financials import NSEFinancialClient
+from app.sources.nse_financials import FinancialFiling, NSEFinancialClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from app.financial_raw import (
+    RAW_ROOT,
+    iter_raw_filings,
+    save_raw_filing,
+    sha256_bytes,
+)
 
 
 # ============================================================
@@ -1402,6 +1410,31 @@ def ingest_financial_filings(
                 filing.xbrl_url
             )
 
+            # --------------------------------------------------------
+            # Persist the exact NSE XML before parsing.
+            #
+            # This makes the raw filing reproducible and allows the
+            # parser to be improved later without downloading again.
+            # --------------------------------------------------------
+            xml_bytes = xml_text.encode("utf-8")
+
+            xml_path, metadata_path, already_exists = save_raw_filing(
+                filing=filing,
+                xml_bytes=xml_bytes,
+            )
+
+            if already_exists:
+                print(
+                    f"Financial raw cache: existing "
+                    f"{symbol} {filing.period_end} "
+                    f"{filing.statement_scope}"
+                )
+            else:
+                print(
+                    f"Financial raw cache: saved "
+                    f"{xml_path}"
+                )
+
             statements = client.parse_xbrl(
                 xml_text=xml_text,
                 filing=filing,
@@ -1891,3 +1924,199 @@ def ingest_shareholding_for_universe(
     print(f"Rows:      {total_written}")
 
     return total_written
+
+def process_cached_financial_filings(
+    symbol: str | None = None,
+) -> int:
+    """
+    Process financial XBRL files registered in the raw-file catalog.
+
+    No NSE network access is performed.
+    PostgreSQL is used to locate raw files; the filesystem
+    remains the immutable raw-data store.
+    """
+    client = NSEFinancialClient()
+
+    symbol_filter = symbol.strip().upper() if symbol else None
+
+    total_statements = 0
+    all_statements: list[dict[str, Any]] = []
+
+    with Session(engine) as db:
+        query = (
+            select(FinancialRawFiling)
+            .order_by(
+                FinancialRawFiling.period_end,
+                FinancialRawFiling.id,
+            )
+        )
+
+        if symbol_filter:
+            query = query.where(
+                FinancialRawFiling.symbol == symbol_filter
+            )
+
+        raw_filings = db.scalars(query).all()
+
+        print(
+            f"Cached financial catalog rows: "
+            f"{len(raw_filings)}"
+        )
+
+        for raw_filing in raw_filings:
+            xml_path = RAW_ROOT / raw_filing.raw_relative_path
+
+            try:
+                if not xml_path.exists():
+                    raise FileNotFoundError(
+                        f"Raw XML not found: {xml_path}"
+                    )
+
+                xml_text = xml_path.read_text(
+                    encoding="utf-8"
+                )
+
+                filing = FinancialFiling(
+                    symbol=raw_filing.symbol,
+                    company_name="",
+                    period_end=raw_filing.period_end,
+                    submission_type=raw_filing.submission_type,
+                    audit_status=raw_filing.audit_status,
+                    statement_scope=raw_filing.statement_scope,
+                    details_url=None,
+                    xbrl_url=raw_filing.xbrl_url,
+                    ixbrl_url=None,
+                    broadcast_datetime=None,
+                    revised_datetime=None,
+                    revision_remarks=None,
+                    source_reference=raw_filing.source_reference,
+                    raw={},
+                )
+
+                statements = client.parse_xbrl(
+                    xml_text=xml_text,
+                    filing=filing,
+                )
+
+                if not statements:
+                    continue
+
+                for statement in statements:
+                    statement["company_id"] = raw_filing.company_id
+
+                all_statements.extend(statements)
+
+            except Exception as exc:
+                print(
+                    f"Cached financial processing failed: "
+                    f"{raw_filing.symbol} "
+                    f"{raw_filing.period_end} "
+                    f"{raw_filing.statement_scope}: "
+                    f"{exc}"
+                )
+
+    if all_statements:
+        derive_quarterly_financials(all_statements)
+
+        total_statements = save_financial_statements(
+            all_statements
+        )
+
+    return total_statements
+
+def catalog_raw_financial_filings() -> int:
+    """
+    Register existing raw XBRL files in financial_raw_filings.
+
+    The filesystem remains the immutable raw-data store.
+    PostgreSQL stores the searchable catalog/index.
+    """
+    inserted = 0
+    existing = 0
+    skipped = 0
+
+    with Session(engine) as session:
+        company_cache: dict[str, int | None] = {}
+
+        for xml_path, metadata_path, filing in iter_raw_filings():
+            symbol = filing.symbol.strip().upper()
+
+            # Resolve company once per symbol.
+            if symbol not in company_cache:
+                company = session.scalar(
+                    select(Company).where(
+                        Company.nse_symbol == symbol
+                    )
+                )
+                company_cache[symbol] = (
+                    company.id if company else None
+                )
+
+            company_id = company_cache[symbol]
+
+            if company_id is None:
+                skipped += 1
+                print(
+                    f"Raw catalog skipped: "
+                    f"company not found: {symbol}"
+                )
+                continue
+
+            xml_bytes = xml_path.read_bytes()
+            sha256 = sha256_bytes(xml_bytes)
+            file_size = len(xml_bytes)
+
+            relative_path = xml_path.resolve().relative_to(
+                RAW_ROOT.resolve()
+            ).as_posix()
+
+            existing_id = session.scalar(
+                select(FinancialRawFiling.id).where(
+                    FinancialRawFiling.company_id == company_id,
+                    FinancialRawFiling.source_reference
+                    == filing.source_reference,
+                    FinancialRawFiling.sha256 == sha256,
+                )
+            )
+
+            if existing_id is not None:
+                existing += 1
+                continue
+
+            row = FinancialRawFiling(
+                company_id=company_id,
+                symbol=symbol,
+                period_end=filing.period_end,
+                statement_scope=filing.statement_scope,
+                submission_type=filing.submission_type,
+                audit_status=filing.audit_status,
+                source_reference=filing.source_reference,
+                xbrl_url=filing.xbrl_url,
+                raw_relative_path=relative_path,
+                sha256=sha256,
+                file_size=file_size,
+                processing_status="PENDING",
+            )
+
+            session.add(row)
+            inserted += 1
+
+            if inserted % 500 == 0:
+                session.commit()
+                print(
+                    f"Raw catalog progress: "
+                    f"inserted={inserted}, "
+                    f"existing={existing}, "
+                    f"skipped={skipped}"
+                )
+
+        session.commit()
+
+    print(
+        f"Raw catalog complete: "
+        f"inserted={inserted}, "
+        f"existing={existing}, "
+        f"skipped={skipped}"
+    )
+
+    return inserted
