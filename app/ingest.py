@@ -1,13 +1,13 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from decimal import Decimal
 import hashlib
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -1927,46 +1927,105 @@ def ingest_shareholding_for_universe(
 
 def process_cached_financial_filings(
     symbol: str | None = None,
+    batch_size: int = 250,
 ) -> int:
     """
     Process financial XBRL files registered in the raw-file catalog.
 
     No NSE network access is performed.
-    PostgreSQL is used to locate raw files; the filesystem
-    remains the immutable raw-data store.
+    PostgreSQL locates raw files; the filesystem remains
+    the immutable raw-data store.
+
+    Processing is performed in batches so the job is resumable
+    and does not accumulate the entire raw archive in memory.
     """
     client = NSEFinancialClient()
 
     symbol_filter = symbol.strip().upper() if symbol else None
 
     total_statements = 0
-    all_statements: list[dict[str, Any]] = []
+    total_processed = 0
+    total_failed = 0
 
-    with Session(engine) as db:
-        query = (
-            select(FinancialRawFiling)
-            .order_by(
-                FinancialRawFiling.period_end,
-                FinancialRawFiling.id,
+    while True:
+        # ---------------------------------------------------------
+        # Load one batch of pending/failed filings.
+        # ---------------------------------------------------------
+        with Session(engine) as db:
+            # Recover rows left in PROCESSING by an interrupted run.
+            db.execute(
+                update(FinancialRawFiling)
+                .where(
+                    FinancialRawFiling.processing_status == "PROCESSING"
+                )
+                .values(
+                    processing_status="PENDING",
+                    processing_error=None,
+                )
             )
-        )
+            db.commit()
 
-        if symbol_filter:
-            query = query.where(
-                FinancialRawFiling.symbol == symbol_filter
+            query = (
+                select(FinancialRawFiling)
+                .where(
+                    FinancialRawFiling.processing_status == "PENDING"
+                )
+                .order_by(
+                    FinancialRawFiling.period_end,
+                    FinancialRawFiling.id,
+                )
+                .limit(batch_size)
             )
 
-        raw_filings = db.scalars(query).all()
+            if symbol_filter:
+                query = query.where(
+                    FinancialRawFiling.symbol == symbol_filter
+                )
 
-        print(
-            f"Cached financial catalog rows: "
-            f"{len(raw_filings)}"
-        )
+            raw_filings = db.scalars(query).all()
 
-        for raw_filing in raw_filings:
-            xml_path = RAW_ROOT / raw_filing.raw_relative_path
+            if not raw_filings:
+                break
 
+            batch_filings = []
+
+            # Claim this batch before doing filesystem/parser work.
+            for raw_filing in raw_filings:
+                raw_filing.processing_status = "PROCESSING"
+                raw_filing.processing_error = None
+
+            db.commit()
+
+            # Copy everything needed outside the SQLAlchemy session.
+            for raw_filing in raw_filings:
+                batch_filings.append(
+                    {
+                        "id": raw_filing.id,
+                        "company_id": raw_filing.company_id,
+                        "symbol": raw_filing.symbol,
+                        "period_end": raw_filing.period_end,
+                        "statement_scope": raw_filing.statement_scope,
+                        "submission_type": raw_filing.submission_type,
+                        "audit_status": raw_filing.audit_status,
+                        "xbrl_url": raw_filing.xbrl_url,
+                        "source_reference": raw_filing.source_reference,
+                        "raw_relative_path": raw_filing.raw_relative_path,
+                    }
+                )
+
+        # ---------------------------------------------------------
+        # Parse the batch outside the database transaction.
+        # ---------------------------------------------------------
+        all_statements: list[dict[str, Any]] = []
+        successful_ids: list[int] = []
+        failed_items: list[tuple[int, str]] = []
+
+        for raw_filing in batch_filings:
             try:
+                xml_path = (
+                    RAW_ROOT / raw_filing["raw_relative_path"]
+                )
+
                 if not xml_path.exists():
                     raise FileNotFoundError(
                         f"Raw XML not found: {xml_path}"
@@ -1977,19 +2036,19 @@ def process_cached_financial_filings(
                 )
 
                 filing = FinancialFiling(
-                    symbol=raw_filing.symbol,
+                    symbol=raw_filing["symbol"],
                     company_name="",
-                    period_end=raw_filing.period_end,
-                    submission_type=raw_filing.submission_type,
-                    audit_status=raw_filing.audit_status,
-                    statement_scope=raw_filing.statement_scope,
+                    period_end=raw_filing["period_end"],
+                    submission_type=raw_filing["submission_type"],
+                    audit_status=raw_filing["audit_status"],
+                    statement_scope=raw_filing["statement_scope"],
                     details_url=None,
-                    xbrl_url=raw_filing.xbrl_url,
+                    xbrl_url=raw_filing["xbrl_url"],
                     ixbrl_url=None,
                     broadcast_datetime=None,
                     revised_datetime=None,
                     revision_remarks=None,
-                    source_reference=raw_filing.source_reference,
+                    source_reference=raw_filing["source_reference"],
                     raw={},
                 )
 
@@ -1999,28 +2058,114 @@ def process_cached_financial_filings(
                 )
 
                 if not statements:
-                    continue
+                    raise ValueError(
+                        "XBRL parser returned no statements"
+                    )
 
                 for statement in statements:
-                    statement["company_id"] = raw_filing.company_id
+                    statement["company_id"] = (
+                        raw_filing["company_id"]
+                    )
 
                 all_statements.extend(statements)
+                successful_ids.append(raw_filing["id"])
 
             except Exception as exc:
+                error_text = str(exc)[:4000]
+
+                failed_items.append(
+                    (raw_filing["id"], error_text)
+                )
+
                 print(
                     f"Cached financial processing failed: "
-                    f"{raw_filing.symbol} "
-                    f"{raw_filing.period_end} "
-                    f"{raw_filing.statement_scope}: "
+                    f"{raw_filing['symbol']} "
+                    f"{raw_filing['period_end']} "
+                    f"{raw_filing['statement_scope']}: "
                     f"{exc}"
                 )
 
-    if all_statements:
-        derive_quarterly_financials(all_statements)
+        # ---------------------------------------------------------
+        # Derive and persist statements for this batch.
+        # ---------------------------------------------------------
+        batch_statements = 0
 
-        total_statements = save_financial_statements(
-            all_statements
+        try:
+            if all_statements:
+                derive_quarterly_financials(
+                    all_statements
+                )
+
+                batch_statements = save_financial_statements(
+                    all_statements
+                )
+
+        except Exception as exc:
+            # If database persistence fails for the batch,
+            # don't mark those filings as successfully processed.
+            error_text = (
+                f"Batch persistence failed: {exc}"
+            )[:4000]
+
+            for filing_id in successful_ids:
+                failed_items.append(
+                    (filing_id, error_text)
+                )
+
+            successful_ids = []
+
+        # ---------------------------------------------------------
+        # Update statuses for this completed batch.
+        # ---------------------------------------------------------
+        with Session(engine) as db:
+            now = datetime.now(timezone.utc)
+
+            for filing_id in successful_ids:
+                raw_filing = db.get(
+                    FinancialRawFiling,
+                    filing_id,
+                )
+
+                if raw_filing is not None:
+                    raw_filing.processing_status = "PROCESSED"
+                    raw_filing.processing_error = None
+                    raw_filing.processed_at = now
+
+            for filing_id, error_text in failed_items:
+                raw_filing = db.get(
+                    FinancialRawFiling,
+                    filing_id,
+                )
+
+                if raw_filing is not None:
+                    raw_filing.processing_status = "FAILED"
+                    raw_filing.processing_error = error_text
+
+            db.commit()
+
+        batch_processed = len(successful_ids)
+        batch_failed = len(failed_items)
+
+        total_processed += batch_processed
+        total_failed += batch_failed
+        total_statements += batch_statements
+
+        print(
+            f"Cached financial batch complete: "
+            f"batch={len(batch_filings)}, "
+            f"processed={batch_processed}, "
+            f"failed={batch_failed}, "
+            f"statements={batch_statements}, "
+            f"total_processed={total_processed}, "
+            f"total_failed={total_failed}"
         )
+
+    print(
+        f"Cached financial processing complete: "
+        f"processed={total_processed}, "
+        f"failed={total_failed}, "
+        f"statements={total_statements}"
+    )
 
     return total_statements
 
