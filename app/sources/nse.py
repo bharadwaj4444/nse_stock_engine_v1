@@ -17,8 +17,19 @@ NSE_HOME = "https://www.nseindia.com"
 UNIVERSE_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
 
 def archive_url(trade_date: date) -> str:
+    if trade_date < date(2024, 7, 8):
+        month = trade_date.strftime("%b").upper()
+        return (
+            "https://nsearchives.nseindia.com/content/historical/"
+            f"EQUITIES/{trade_date:%Y}/{month}/"
+            f"cm{trade_date:%d}{month}{trade_date:%Y}bhav.csv.zip"
+        )
+
     ds = trade_date.strftime("%Y%m%d")
-    return f"https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_{ds}_F_0000.csv.zip"
+    return (
+        "https://nsearchives.nseindia.com/content/cm/"
+        f"BhavCopy_NSE_CM_0_0_0_{ds}_F_0000.csv.zip"
+    )
 
 class NSEClient:
     def __init__(self):
