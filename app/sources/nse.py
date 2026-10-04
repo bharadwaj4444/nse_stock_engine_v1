@@ -71,16 +71,33 @@ class NSEClient:
             raise RuntimeError("NSE universe CSV returned no rows")
         return normalize_universe(df)
 
-    def bhavcopy(self, trade_date: date) -> tuple[pd.DataFrame, str, bytes]:
+    def bhavcopy(
+        self,
+        trade_date: date,
+        content: bytes | None = None,
+    ) -> tuple[pd.DataFrame, str, bytes]:
         url = archive_url(trade_date)
-        content = self.get_bytes(url)
+
+        if content is None:
+            content = self.get_bytes(url)
+
         with zipfile.ZipFile(io.BytesIO(content)) as z:
-            csv_names = [n for n in z.namelist() if n.lower().endswith(".csv")]
+            csv_names = [
+                n
+                for n in z.namelist()
+                if n.lower().endswith(".csv")
+            ]
+
             if not csv_names:
-                raise RuntimeError(f"No CSV found inside {url}")
+                raise RuntimeError(
+                    f"No CSV found inside {url}"
+                )
+
             name = csv_names[0]
+
             with z.open(name) as f:
                 df = pd.read_csv(f)
+
         return normalize_bhavcopy(df), url, content
 
     def nifty50_history(self, from_date: date, to_date: date) -> list[dict]:

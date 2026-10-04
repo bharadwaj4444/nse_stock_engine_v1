@@ -72,44 +72,238 @@ DATABASE_URL=postgresql+psycopg://nse:nse@localhost:5432/nse_stocks
 alembic upgrade head
 ```
 
-### 5. Download current NSE universe
+## CLI Commands
 
-```bash
+All commands are run from the project root:
+
+```cmd
+python -m app.cli <command>
+```
+
+### 1. Build / refresh the NSE universe
+
+Download the current NSE equity universe and populate the `companies` table:
+
+```cmd
 python -m app.cli universe
 ```
 
-### 6. Backfill five years
+---
 
-```bash
+### 2. Daily price ingestion
+
+Ingest the latest available NSE bhavcopy:
+
+```cmd
+python -m app.cli daily
+```
+
+---
+
+### 3. Historical price backfill
+
+Backfill historical NSE daily prices.
+
+#### Last 5 years
+
+```cmd
 python -m app.cli backfill --years 5
 ```
 
-This downloads weekday archive files, skips weekends, retries failures, and safely ignores
-non-trading dates.
+#### Explicit date range
 
-For a test run:
-
-```bash
-python -m app.cli backfill --start 2026-09-01 --end 2026-09-25
+```cmd
+python -m app.cli backfill --start 2021-01-01 --end 2026-09-25
 ```
 
-### 7. Calculate indicators
+#### Resume-safe backfill
 
-```bash
+The backfill is restartable.
+
+Downloaded and successfully processed dates are automatically skipped:
+
+```cmd
+python -m app.cli backfill --start 2021-01-01 --end 2026-09-25
+```
+
+The backfill uses the following logic:
+
+1. Valid raw ZIP + complete database data → skip the date.
+2. Valid raw ZIP + incomplete database data → reuse the cached ZIP.
+3. Missing/invalid raw ZIP → download from NSE.
+4. Failed dates → retry on the next run.
+5. Existing database rows are safely upserted.
+
+This makes it safe to stop and restart a large historical backfill.
+
+#### Force re-download
+
+To ignore the cached raw ZIP and download/reprocess every requested date:
+
+```cmd
+python -m app.cli backfill --start 2021-01-01 --end 2026-09-25 --force
+```
+
+Use `--force` only when a fresh download is specifically required.
+
+#### Example
+
+```cmd
+python -m app.cli backfill --start 2024-07-04 --end 2024-07-10
+```
+
+The historical NSE archive format is handled automatically:
+
+* Dates before `2024-07-08` use the legacy NSE archive.
+* Dates from `2024-07-08` onward use the current UDiFF archive.
+
+---
+
+### 4. Technical indicators
+
+Calculate technical indicators for a specific trading date:
+
+```cmd
 python -m app.cli indicators --date 2026-09-25
 ```
 
-Or calculate the latest available trading date:
+Indicators include:
 
-```bash
-python -m app.cli indicators
+* SMA
+* EMA
+* RSI
+* MACD
+* ATR
+* Bollinger Bands
+* ADX
+* Volatility
+* Returns
+* Relative volume
+* NIFTY 50 relative performance
+
+---
+
+## Financial Data CLI
+
+Financial data is obtained from NSE Integrated Filings and stored as raw filings before being processed into normalized financial statements.
+
+### 5. Download financial filings for one company
+
+```cmd
+python -m app.cli financial-download --symbol HDFCBANK
 ```
 
-### 8. Run evening pipeline
+The default start date is:
 
-```bash
-python -m app.cli daily
+```text
+01-01-2025
 ```
+
+Specify an explicit date range:
+
+```cmd
+python -m app.cli financial-download \
+    --symbol HDFCBANK \
+    --from-date 01-01-2025 \
+    --to-date 30-09-2026
+```
+
+Specify the request delay:
+
+```cmd
+python -m app.cli financial-download \
+    --symbol HDFCBANK \
+    --from-date 01-01-2025 \
+    --delay 1.0
+```
+
+### 6. Download financial filings for the configured universe
+
+```cmd
+python -m app.cli financial-download \
+    --from-date 01-01-2025
+```
+
+This downloads and catalogs the available NSE financial filings for the universe.
+
+---
+
+### 7. Process cached financial filings
+
+Process cached raw financial XML for one company:
+
+```cmd
+python -m app.cli financial-process --symbol HDFCBANK
+```
+
+Process all cached financial filings:
+
+```cmd
+python -m app.cli financial-process
+```
+
+Processing converts the raw filings into normalized financial statement records.
+
+---
+
+## Typical Initial Setup
+
+For a new database, the basic sequence is:
+
+```cmd
+python -m app.cli universe
+```
+
+Then populate historical prices:
+
+```cmd
+python -m app.cli backfill --start 2021-01-01 --end 2026-09-25
+```
+
+Then calculate indicators for the required dates:
+
+```cmd
+python -m app.cli indicators --date 2026-09-25
+```
+
+Download financial filings:
+
+```cmd
+python -m app.cli financial-download --from-date 01-01-2025
+```
+
+Process the downloaded filings:
+
+```cmd
+python -m app.cli financial-process
+```
+
+---
+
+## Backfill / Recovery Workflow
+
+For a large historical download, the recommended command is:
+
+```cmd
+python -m app.cli backfill --start 2021-01-01 --end 2026-09-25
+```
+
+If the process is interrupted, run the same command again:
+
+```cmd
+python -m app.cli backfill --start 2021-01-01 --end 2026-09-25
+```
+
+Previously completed dates are skipped, while incomplete dates are recovered from their cached raw ZIP files whenever possible.
+
+To deliberately redownload everything:
+
+```cmd
+python -m app.cli backfill --start 2021-01-01 --end 2026-09-25 --force
+```
+
+The historical backfill currently processes dates **sequentially**. It does not use five concurrent workers.
+
 
 The daily job:
 

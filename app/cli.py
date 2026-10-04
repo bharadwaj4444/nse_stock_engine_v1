@@ -23,6 +23,11 @@ def main():
     b.add_argument("--years", type=int, default=5)
     b.add_argument("--start")
     b.add_argument("--end")
+    b.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-download and reprocess every requested date",
+    )
 
     i = sub.add_parser("indicators")
     i.add_argument("--date")
@@ -77,7 +82,11 @@ def main():
         else:
             start = date.today() - relativedelta(years=args.years)
         end = date.fromisoformat(args.end) if args.end else date.today()
-        backfill(start, end)
+        backfill(
+            start,
+            end,
+            force=args.force,
+        )
 
     elif args.cmd == "indicators":
         calculate_for_date(date.fromisoformat(args.date) if args.date else None)

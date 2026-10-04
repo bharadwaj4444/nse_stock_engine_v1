@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+import io
+import zipfile
 from decimal import Decimal
 import hashlib
 from datetime import date, datetime, timedelta, timezone
@@ -1108,30 +1110,167 @@ def _company_map(db):
 # ============================================================
 # NSE Bhavcopy
 # ============================================================
+def _bhavcopy_raw_path(trade_date: date) -> Path:
+    return (
+        Path(settings.raw_data_dir)
+        / "nse"
+        / "cm"
+        / trade_date.strftime("%Y/%m/%d")
+        / f"BhavCopy_{trade_date:%Y%m%d}.csv.zip"
+    )
 
+
+def _raw_bhavcopy_is_valid(path: Path) -> bool:
+    if not path.exists():
+        return False
+
+    if path.stat().st_size == 0:
+        return False
+
+    try:
+        with zipfile.ZipFile(path, "r") as z:
+            csv_names = [
+                name
+                for name in z.namelist()
+                if name.lower().endswith(".csv")
+            ]
+
+            if not csv_names:
+                return False
+
+            # Check ZIP integrity without extracting it.
+            return z.testzip() is None
+
+    except (zipfile.BadZipFile, OSError):
+        return False
+
+
+def _bhavcopy_db_complete(trade_date: date) -> bool:
+    """
+    Return True only when the latest successful bhavcopy
+    ingestion for this date still matches the number of
+    daily_price rows recorded by that ingestion.
+
+    This prevents us from treating a partially populated
+    date as complete.
+    """
+
+    with SessionLocal() as db:
+        run = db.execute(
+            select(IngestionRun)
+            .where(
+                IngestionRun.run_type == "bhavcopy",
+                IngestionRun.trade_date == trade_date,
+                IngestionRun.source == "NSE",
+                IngestionRun.status == "SUCCESS",
+            )
+            .order_by(
+                IngestionRun.id.desc()
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+
+        if run is None:
+            return False
+
+        if run.records_written <= 0:
+            return False
+
+        actual_rows = db.execute(
+            select(func.count())
+            .select_from(DailyPrice)
+            .where(
+                DailyPrice.trade_date == trade_date
+            )
+        ).scalar_one()
+
+        return actual_rows == run.records_written
+    
 def ingest_bhavcopy(
     trade_date: date,
     client: NSEClient | None = None,
+    *,
+    force: bool = False,
 ) -> int:
+    """
+    Ingest one NSE bhavcopy date.
+
+    Resume behavior:
+
+    1. force=True
+       Always download from NSE and reprocess.
+
+    2. Existing valid raw ZIP + complete DB
+       Skip the date completely.
+
+    3. Existing valid raw ZIP + incomplete/missing DB
+       Reuse the raw ZIP without downloading again.
+
+    4. Missing/invalid raw ZIP
+       Download from NSE.
+
+    Failed dates are not marked successful, so a later run
+    will retry them.
+    """
+
     client = client or NSEClient()
 
-    started = (
-        datetime.now().astimezone()
-    )
+    started = datetime.now().astimezone()
 
     raw_dir = (
         Path(settings.raw_data_dir)
         / "nse"
         / "cm"
-        / trade_date.strftime(
-            "%Y/%m/%d"
-        )
+        / trade_date.strftime("%Y/%m/%d")
     )
 
     raw_dir.mkdir(
         parents=True,
         exist_ok=True,
     )
+
+    zip_path = _bhavcopy_raw_path(trade_date)
+
+    # --------------------------------------------------------
+    # Resume logic
+    # --------------------------------------------------------
+
+    raw_exists = _raw_bhavcopy_is_valid(zip_path)
+
+    if not force and raw_exists:
+        if _bhavcopy_db_complete(trade_date):
+            print(
+                f"{trade_date}: already complete; "
+                f"raw ZIP and DB are valid; skipping"
+            )
+            return 0
+
+        print(
+            f"{trade_date}: raw ZIP exists; "
+            f"DB incomplete; reusing cached ZIP"
+        )
+
+    elif not force and zip_path.exists():
+        print(
+            f"{trade_date}: raw ZIP is invalid; "
+            f"downloading again"
+        )
+
+    elif force:
+        print(
+            f"{trade_date}: --force enabled; "
+            f"downloading again"
+        )
+
+    else:
+        print(
+            f"{trade_date}: raw ZIP missing; "
+            f"downloading"
+        )
+
+    # --------------------------------------------------------
+    # Create ingestion run
+    # --------------------------------------------------------
 
     with SessionLocal.begin() as db:
         run = IngestionRun(
@@ -1148,27 +1287,43 @@ def ingest_bhavcopy(
         run_id = run.id
 
     try:
-        df, url, content = (
-            client.bhavcopy(
+        # ----------------------------------------------------
+        # Obtain ZIP content
+        # ----------------------------------------------------
+
+        if (
+            not force
+            and zip_path.exists()
+            and _raw_bhavcopy_is_valid(zip_path)
+        ):
+            content = zip_path.read_bytes()
+
+            df, url, content = client.bhavcopy(
+                trade_date,
+                content=content,
+            )
+
+        else:
+            df, url, content = client.bhavcopy(
                 trade_date
             )
-        )
+
+            zip_path.write_bytes(content)
+
+        # ----------------------------------------------------
+        # Verify that the ZIP is actually usable.
+        # client.bhavcopy() has already parsed the CSV.
+        # ----------------------------------------------------
 
         digest = hashlib.sha256(
             content
         ).hexdigest()
 
-        zip_path = (
-            raw_dir
-            / f"BhavCopy_{trade_date:%Y%m%d}.csv.zip"
-        )
-
-        zip_path.write_bytes(
-            content
-        )
-
+        # ----------------------------------------------------
         # Only normal equity series are used
         # for the initial V1 universe.
+        # ----------------------------------------------------
+
         if "series" in df.columns:
             df = df[
                 df["series"].isin(
@@ -1181,6 +1336,10 @@ def ingest_bhavcopy(
                     ]
                 )
             ].copy()
+
+        # ----------------------------------------------------
+        # Persist daily prices
+        # ----------------------------------------------------
 
         with SessionLocal.begin() as db:
             cmap = _company_map(db)
@@ -1201,38 +1360,45 @@ def ingest_bhavcopy(
                     {
                         "company_id":
                             company_id,
+
                         "trade_date":
                             trade_date,
+
                         "open_price":
                             getattr(
                                 r,
                                 "open",
                                 None,
                             ),
+
                         "high_price":
                             getattr(
                                 r,
                                 "high",
                                 None,
                             ),
+
                         "low_price":
                             getattr(
                                 r,
                                 "low",
                                 None,
                             ),
+
                         "close_price":
                             getattr(
                                 r,
                                 "close",
                                 None,
                             ),
+
                         "prev_close":
                             getattr(
                                 r,
                                 "prev_close",
                                 None,
                             ),
+
                         "volume":
                             _int(
                                 getattr(
@@ -1241,12 +1407,14 @@ def ingest_bhavcopy(
                                     None,
                                 )
                             ),
+
                         "traded_value":
                             getattr(
                                 r,
                                 "value",
                                 None,
                             ),
+
                         "trades_count":
                             _int(
                                 getattr(
@@ -1255,6 +1423,7 @@ def ingest_bhavcopy(
                                     None,
                                 )
                             ),
+
                         "delivery_qty":
                             _int(
                                 getattr(
@@ -1263,18 +1432,21 @@ def ingest_bhavcopy(
                                     None,
                                 )
                             ),
+
                         "delivery_pct":
                             getattr(
                                 r,
                                 "delivery_pct",
                                 None,
                             ),
+
                         "vwap":
                             getattr(
                                 r,
                                 "vwap",
                                 None,
                             ),
+
                         "source_file":
                             (
                                 f"{url} "
@@ -1319,6 +1491,10 @@ def ingest_bhavcopy(
 
                 db.execute(stmt)
 
+            # ------------------------------------------------
+            # Mark ingestion successful
+            # ------------------------------------------------
+
             run = db.get(
                 IngestionRun,
                 run_id,
@@ -1350,7 +1526,6 @@ def ingest_bhavcopy(
                 )
 
         raise
-
 
 # ============================================================
 # Financial filings

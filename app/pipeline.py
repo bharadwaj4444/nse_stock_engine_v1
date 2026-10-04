@@ -10,18 +10,57 @@ def date_range(start, end):
             yield d
         d += timedelta(days=1)
 
-def backfill(start: date, end: date):
+def backfill(
+    start: date,
+    end: date,
+    *,
+    force: bool = False,
+):
     client = NSEClient()
+
     total = 0
+    skipped = 0
+    failed = 0
+
     for d in date_range(start, end):
         try:
-            n = ingest_bhavcopy(d, client)
-            print(f"{d}: {n} rows")
-            total += n
+            n = ingest_bhavcopy(
+                d,
+                client,
+                force=force,
+            )
+
+            if n == 0:
+                skipped += 1
+            else:
+                total += n
+
+            print(
+                f"{d}: {n} rows"
+            )
+
         except Exception as exc:
-            # 404/non-trading dates are normal; other failures are reported and processing continues.
-            print(f"{d}: skipped/failed: {exc}")
-    print(f"Backfill complete: {total} rows written")
+            failed += 1
+
+            # 404/non-trading dates are normal;
+            # other failures are reported and processing continues.
+            print(
+                f"{d}: skipped/failed: {exc}"
+            )
+
+    print()
+    print(
+        f"Backfill complete: "
+        f"{total} rows written"
+    )
+    print(
+        f"Dates skipped: "
+        f"{skipped}"
+    )
+    print(
+        f"Dates failed: "
+        f"{failed}"
+    )
 
 def daily():
     print("Refreshing NSE universe...")
