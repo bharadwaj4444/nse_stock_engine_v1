@@ -682,7 +682,7 @@ class NSEFinancialClient:
                             cf_end_date - cf_start_date
                         ).days
 
-                        if 75 <= cf_days <= 105:
+                        if (period_type == "annual" or 75 <= cf_days <= 105):
                             operating_cf = numeric_value(
                                 "CashFlowsFromUsedInOperatingActivities",
                                 context_id,

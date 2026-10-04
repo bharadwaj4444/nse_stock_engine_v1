@@ -28,6 +28,12 @@ BALANCE_FIELDS = (
     "cash_and_equivalents",
 )
 
+CASH_FLOW_FIELDS = (
+    "operating_cash_flow",
+    "capital_expenditure",
+    "free_cash_flow",
+)
+
 
 def _is_complete_quarter_sequence(rows: list[dict[str, Any]]) -> bool:
     """
@@ -125,6 +131,7 @@ def _decimal_sum(rows: list[dict[str, Any]], field: str) -> Decimal | None:
 
 def _calculate_ttm_row(
     quarters: list[dict[str, Any]],
+    annual_statement: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Calculate one TTM record from four normalized quarterly statements.
@@ -136,6 +143,9 @@ def _calculate_ttm_row(
         for row in quarters
         if row["filing_date"] is not None
     ]
+
+    if annual_statement is not None and annual_statement["filing_date"] is not None:
+        filing_dates.append(annual_statement["filing_date"])
 
     result: dict[str, Any] = {
         "company_id": latest["company_id"],
@@ -149,8 +159,32 @@ def _calculate_ttm_row(
         "calculation_method": "FOUR_QUARTERS",
     }
 
-    for field in FLOW_FIELDS:
+    # Regular income-statement flows are always calculated from four quarters.
+    for field in (
+        "revenue",
+        "ebitda",
+        "ebit",
+        "profit_before_tax",
+        "net_income",
+    ):
         result[f"{field}_ttm"] = _decimal_sum(quarters, field)
+
+    # Cash flow requires special handling because NSE frequently reports
+    # cash flow annually or as YTD rather than as true quarterly values.
+    #
+    # For a March TTM point, the canonical annual statement is the most
+    # reliable representation of the trailing twelve months.
+    cash_flow_from_annual = (
+        annual_statement is not None
+        and quarters[-1]["period_end"].month == 3
+        and quarters[-1]["period_end"].day == 31
+    )
+
+    for field in CASH_FLOW_FIELDS:
+        if cash_flow_from_annual:
+            result[f"{field}_ttm"] = annual_statement[field]
+        else:
+            result[f"{field}_ttm"] = _decimal_sum(quarters, field)
 
     # EPS is treated separately. Summing quarterly EPS is only done when
     # all four quarterly EPS values exist.
@@ -222,7 +256,7 @@ def _load_quarterly_statements(
             operating_cash_flow,
             capital_expenditure,
             free_cash_flow
-        FROM financial_statements
+        FROM financial_statements_canonical
         WHERE {" AND ".join(conditions)}
         ORDER BY company_id, statement_scope, period_end, id
     """
@@ -233,7 +267,46 @@ def _load_quarterly_statements(
             params,
         ).mappings().all()
 
-    return _deduplicate_quarters([dict(row) for row in rows])
+    return [dict(row) for row in rows]
+
+def _load_annual_statements(
+    company_id: int,
+    statement_scope: str,
+) -> dict[date, dict[str, Any]]:
+    """
+    Load canonical annual statements keyed by period_end.
+    """
+    sql = text(
+        """
+        SELECT
+            company_id,
+            period_end,
+            filing_date,
+            statement_scope,
+            operating_cash_flow,
+            capital_expenditure,
+            free_cash_flow
+        FROM financial_statements_canonical
+        WHERE company_id = :company_id
+          AND statement_scope = :statement_scope
+          AND period_type = 'annual'
+        ORDER BY period_end
+        """
+    )
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            sql,
+            {
+                "company_id": company_id,
+                "statement_scope": statement_scope,
+            },
+        ).mappings().all()
+
+    return {
+        row["period_end"]: dict(row)
+        for row in rows
+    }
 
 def calculate_ttm_for_company(
     company_id: int,
@@ -243,6 +316,11 @@ def calculate_ttm_for_company(
     Calculate every available four-quarter TTM point for one company/scope.
     """
     rows = _load_quarterly_statements(
+        company_id=company_id,
+        statement_scope=statement_scope,
+    )
+
+    annual_statements = _load_annual_statements(
         company_id=company_id,
         statement_scope=statement_scope,
     )
@@ -268,7 +346,14 @@ def calculate_ttm_for_company(
             if not _is_complete_quarter_sequence(window):
                 continue
 
-            results.append(_calculate_ttm_row(window))
+            annual_statement = annual_statements.get(window[-1]["period_end"])
+
+            results.append(
+                _calculate_ttm_row(
+                    window,
+                    annual_statement=annual_statement,
+                )
+            )
 
     return results
 
@@ -374,7 +459,7 @@ def build_ttm_for_all(
     Build and persist TTM rows company-by-company.
 
     Processing one company/scope at a time keeps memory usage bounded and
-    preserves the existing TTM calculation and Original/Revision logic.
+    preserves the existing TTM calculation and canonical statement selection.
     """
     conditions = ["period_type = 'quarterly'"]
     params: dict[str, Any] = {}
@@ -387,7 +472,7 @@ def build_ttm_for_all(
         SELECT DISTINCT
             company_id,
             statement_scope
-        FROM financial_statements
+        FROM financial_statements_canonical
         WHERE {" AND ".join(conditions)}
         ORDER BY company_id, statement_scope
     """

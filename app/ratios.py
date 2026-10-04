@@ -100,12 +100,22 @@ def _build_ratio_row(
 
         "eps_ttm": current["eps_ttm"],
 
-        # Cash-flow ratios intentionally remain NULL until
-        # quarterly cash-flow ingestion is available.
-        "operating_cash_flow_margin": None,
-        "free_cash_flow_margin": None,
-        "fcf_to_net_income": None,
-        "ocf_to_net_income": None,
+        "operating_cash_flow_margin": _ratio(
+            current["operating_cash_flow_ttm"],
+            revenue,
+        ),
+        "free_cash_flow_margin": _ratio(
+            current["free_cash_flow_ttm"],
+            revenue,
+        ),
+        "fcf_to_net_income": _ratio(
+            current["free_cash_flow_ttm"],
+            net_income,
+        ),
+        "ocf_to_net_income": _ratio(
+            current["operating_cash_flow_ttm"],
+            net_income,
+        ),
 
         "calculation_method": "TTM_RATIOS",
         "source_period": current["period_end"],
@@ -178,6 +188,9 @@ def _load_ttm_rows(
             ebit_ttm,
             net_income_ttm,
             eps_ttm,
+            operating_cash_flow_ttm,
+            capital_expenditure_ttm,
+            free_cash_flow_ttm,
 
             total_assets,
             total_equity,

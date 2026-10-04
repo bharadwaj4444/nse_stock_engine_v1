@@ -703,12 +703,40 @@ def _derive_q4_cash_flow(
 
         previous = None
 
+        # The preceding cumulative cash-flow period must end
+        # exactly one fiscal quarter before the annual period end.
+        expected_previous_end = annual["period_end"]
+
+        if expected_previous_end.month == 3:
+            expected_previous_end = expected_previous_end.replace(
+                month=12,
+                day=31,
+                year=expected_previous_end.year - 1,
+            )
+        elif expected_previous_end.month == 6:
+            expected_previous_end = expected_previous_end.replace(
+                month=3,
+                day=31,
+            )
+        elif expected_previous_end.month == 9:
+            expected_previous_end = expected_previous_end.replace(
+                month=6,
+                day=30,
+            )
+        elif expected_previous_end.month == 12:
+            expected_previous_end = expected_previous_end.replace(
+                month=9,
+                day=30,
+            )
+        else:
+            continue
+
         for candidate in reversed(
             quarterly_statements
         ):
             if (
                 candidate["period_end"]
-                >= annual["period_end"]
+                != expected_previous_end
             ):
                 continue
 
