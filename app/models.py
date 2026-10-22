@@ -292,6 +292,131 @@ class ShareCapital(Base):
         server_default=func.now(),
     )
 
+class ShareholdingSnapshot(Base):
+    __tablename__ = "shareholding_snapshots"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "effective_date",
+            name="uq_shareholding_snapshot_identity",
+        ),
+        Index(
+            "ix_shareholding_snapshot_company_date",
+            "company_id",
+            "effective_date",
+        ),
+        Index(
+            "ix_shareholding_snapshot_date",
+            "effective_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    company_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    effective_date: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    submission_date: Mapped[date | None] = mapped_column(Date)
+    revision_date: Mapped[date | None] = mapped_column(Date)
+    revised: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    total_shares: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+    )
+
+    promoter_shares: Mapped[int | None] = mapped_column(BigInteger)
+    public_shares: Mapped[int | None] = mapped_column(BigInteger)
+    non_promoter_non_public_shares: Mapped[int | None] = mapped_column(BigInteger)
+
+    government_shares: Mapped[int | None] = mapped_column(BigInteger)
+    domestic_institutions_shares: Mapped[int | None] = mapped_column(BigInteger)
+    foreign_institutions_shares: Mapped[int | None] = mapped_column(BigInteger)
+    non_institutions_shares: Mapped[int | None] = mapped_column(BigInteger)
+
+    mutual_funds_shares: Mapped[int | None] = mapped_column(BigInteger)
+    venture_capital_funds_shares: Mapped[int | None] = mapped_column(BigInteger)
+    alternative_investment_funds_shares: Mapped[int | None] = mapped_column(BigInteger)
+    banks_shares: Mapped[int | None] = mapped_column(BigInteger)
+    insurance_companies_shares: Mapped[int | None] = mapped_column(BigInteger)
+    provident_pension_funds_shares: Mapped[int | None] = mapped_column(BigInteger)
+    asset_reconstruction_companies_shares: Mapped[int | None] = mapped_column(BigInteger)
+    domestic_sovereign_wealth_funds_shares: Mapped[int | None] = mapped_column(BigInteger)
+    nbfc_shares: Mapped[int | None] = mapped_column(BigInteger)
+    other_domestic_financial_institutions_shares: Mapped[int | None] = mapped_column(BigInteger)
+
+    fdi_shares: Mapped[int | None] = mapped_column(BigInteger)
+    foreign_vc_investors_shares: Mapped[int | None] = mapped_column(BigInteger)
+    foreign_sovereign_wealth_funds_shares: Mapped[int | None] = mapped_column(BigInteger)
+    fpi_category_i_shares: Mapped[int | None] = mapped_column(BigInteger)
+    fpi_category_ii_shares: Mapped[int | None] = mapped_column(BigInteger)
+    overseas_depositories_shares: Mapped[int | None] = mapped_column(BigInteger)
+    other_foreign_institutions_shares: Mapped[int | None] = mapped_column(BigInteger)
+
+    government_state_shares: Mapped[int | None] = mapped_column(BigInteger)
+    government_promoted_companies_shares: Mapped[int | None] = mapped_column(BigInteger)
+    governments_shares: Mapped[int | None] = mapped_column(BigInteger)
+
+    associate_companies_subsidiaries_shares: Mapped[int | None] = mapped_column(BigInteger)
+    directors_relatives_shares: Mapped[int | None] = mapped_column(BigInteger)
+    key_managerial_personnel_shares: Mapped[int | None] = mapped_column(BigInteger)
+    promoter_relatives_shares: Mapped[int | None] = mapped_column(BigInteger)
+    promoter_related_trusts_shares: Mapped[int | None] = mapped_column(BigInteger)
+    iepf_shares: Mapped[int | None] = mapped_column(BigInteger)
+    resident_individuals_upto_2l_shares: Mapped[int | None] = mapped_column(BigInteger)
+    resident_individuals_above_2l_shares: Mapped[int | None] = mapped_column(BigInteger)
+    nris_shares: Mapped[int | None] = mapped_column(BigInteger)
+    foreign_nationals_shares: Mapped[int | None] = mapped_column(BigInteger)
+    foreign_companies_shares: Mapped[int | None] = mapped_column(BigInteger)
+    bodies_corporate_shares: Mapped[int | None] = mapped_column(BigInteger)
+    other_non_institutions_shares: Mapped[int | None] = mapped_column(BigInteger)
+
+    shareholding_pattern_shares: Mapped[int | None] = mapped_column(BigInteger)
+
+    source: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="NSE",
+        server_default="NSE",
+    )
+
+    source_url: Mapped[str | None] = mapped_column(Text)
+
+    calculation_method: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        default="NSE_SHAREHOLDING_PATTERN",
+        server_default="NSE_SHAREHOLDING_PATTERN",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
 
 class MarketMetric(Base):
     __tablename__ = "market_metrics"
@@ -894,6 +1019,178 @@ class FinancialRawFiling(Base):
 
     processing_error: Mapped[str | None] = mapped_column(
         Text
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+class ShareholdingMetrics(Base):
+    __tablename__ = "shareholding_metrics"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "effective_date",
+            name="uq_shareholding_metrics_identity",
+        ),
+        Index(
+            "ix_shareholding_metrics_company_date",
+            "company_id",
+            "effective_date",
+        ),
+        Index(
+            "ix_shareholding_metrics_date",
+            "effective_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    company_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    effective_date: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    total_shares: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+    )
+
+    promoter_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    public_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    non_promoter_non_public_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    government_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    domestic_institutions_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    foreign_institutions_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    non_institutions_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    mutual_funds_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    venture_capital_funds_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    alternative_investment_funds_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    banks_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    insurance_companies_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    provident_pension_funds_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    fdi_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    foreign_vc_investors_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    foreign_sovereign_wealth_funds_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    fpi_category_i_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    fpi_category_ii_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    overseas_depositories_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    resident_individuals_upto_2l_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    resident_individuals_above_2l_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    nris_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    foreign_nationals_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    foreign_companies_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    bodies_corporate_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    other_non_institutions_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6)
+    )
+
+    source: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="NSE",
+        server_default="NSE",
+    )
+
+    calculation_method: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        default="NSE_SHAREHOLDING_PERCENTAGE",
+        server_default="NSE_SHAREHOLDING_PERCENTAGE",
     )
 
     created_at: Mapped[datetime] = mapped_column(

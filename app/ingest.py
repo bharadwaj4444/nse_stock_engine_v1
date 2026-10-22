@@ -1996,7 +1996,293 @@ def save_shareholding_filing(filing) -> int:
             },
         )
 
-        return int(result.scalar_one())
+        share_capital_id = int(result.scalar_one())
+
+        conn.execute(
+            text(
+                """
+                INSERT INTO shareholding_snapshots (
+                    company_id,
+                    effective_date,
+                    submission_date,
+                    revision_date,
+                    revised,
+                    total_shares,
+                    promoter_shares,
+                    public_shares,
+                    non_promoter_non_public_shares,
+                    government_shares,
+                    domestic_institutions_shares,
+                    foreign_institutions_shares,
+                    non_institutions_shares,
+                    mutual_funds_shares,
+                    venture_capital_funds_shares,
+                    alternative_investment_funds_shares,
+                    banks_shares,
+                    insurance_companies_shares,
+                    provident_pension_funds_shares,
+                    asset_reconstruction_companies_shares,
+                    domestic_sovereign_wealth_funds_shares,
+                    nbfc_shares,
+                    other_domestic_financial_institutions_shares,
+                    fdi_shares,
+                    foreign_vc_investors_shares,
+                    foreign_sovereign_wealth_funds_shares,
+                    fpi_category_i_shares,
+                    fpi_category_ii_shares,
+                    overseas_depositories_shares,
+                    other_foreign_institutions_shares,
+                    government_state_shares,
+                    government_promoted_companies_shares,
+                    governments_shares,
+                    associate_companies_subsidiaries_shares,
+                    directors_relatives_shares,
+                    key_managerial_personnel_shares,
+                    promoter_relatives_shares,
+                    promoter_related_trusts_shares,
+                    iepf_shares,
+                    resident_individuals_upto_2l_shares,
+                    resident_individuals_above_2l_shares,
+                    nris_shares,
+                    foreign_nationals_shares,
+                    foreign_companies_shares,
+                    bodies_corporate_shares,
+                    other_non_institutions_shares,
+                    shareholding_pattern_shares,
+                    source,
+                    source_url,
+                    calculation_method,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    :company_id,
+                    :effective_date,
+                    :submission_date,
+                    :revision_date,
+                    :revised,
+                    :total_shares,
+                    :promoter_shares,
+                    :public_shares,
+                    :non_promoter_non_public_shares,
+                    :government_shares,
+                    :domestic_institutions_shares,
+                    :foreign_institutions_shares,
+                    :non_institutions_shares,
+                    :mutual_funds_shares,
+                    :venture_capital_funds_shares,
+                    :alternative_investment_funds_shares,
+                    :banks_shares,
+                    :insurance_companies_shares,
+                    :provident_pension_funds_shares,
+                    :asset_reconstruction_companies_shares,
+                    :domestic_sovereign_wealth_funds_shares,
+                    :nbfc_shares,
+                    :other_domestic_financial_institutions_shares,
+                    :fdi_shares,
+                    :foreign_vc_investors_shares,
+                    :foreign_sovereign_wealth_funds_shares,
+                    :fpi_category_i_shares,
+                    :fpi_category_ii_shares,
+                    :overseas_depositories_shares,
+                    :other_foreign_institutions_shares,
+                    :government_state_shares,
+                    :government_promoted_companies_shares,
+                    :governments_shares,
+                    :associate_companies_subsidiaries_shares,
+                    :directors_relatives_shares,
+                    :key_managerial_personnel_shares,
+                    :promoter_relatives_shares,
+                    :promoter_related_trusts_shares,
+                    :iepf_shares,
+                    :resident_individuals_upto_2l_shares,
+                    :resident_individuals_above_2l_shares,
+                    :nris_shares,
+                    :foreign_nationals_shares,
+                    :foreign_companies_shares,
+                    :bodies_corporate_shares,
+                    :other_non_institutions_shares,
+                    :shareholding_pattern_shares,
+                    :source,
+                    :source_url,
+                    :calculation_method,
+                    NOW(),
+                    NOW()
+                )
+                ON CONFLICT (
+                    company_id,
+                    effective_date
+                )
+                DO UPDATE SET
+                    submission_date = EXCLUDED.submission_date,
+                    revision_date = EXCLUDED.revision_date,
+                    revised = EXCLUDED.revised,
+                    total_shares = EXCLUDED.total_shares,
+                    promoter_shares = EXCLUDED.promoter_shares,
+                    public_shares = EXCLUDED.public_shares,
+                    non_promoter_non_public_shares =
+                        EXCLUDED.non_promoter_non_public_shares,
+                    government_shares = EXCLUDED.government_shares,
+                    domestic_institutions_shares =
+                        EXCLUDED.domestic_institutions_shares,
+                    foreign_institutions_shares =
+                        EXCLUDED.foreign_institutions_shares,
+                    non_institutions_shares =
+                        EXCLUDED.non_institutions_shares,
+                    mutual_funds_shares = EXCLUDED.mutual_funds_shares,
+                    venture_capital_funds_shares =
+                        EXCLUDED.venture_capital_funds_shares,
+                    alternative_investment_funds_shares =
+                        EXCLUDED.alternative_investment_funds_shares,
+                    banks_shares = EXCLUDED.banks_shares,
+                    insurance_companies_shares =
+                        EXCLUDED.insurance_companies_shares,
+                    provident_pension_funds_shares =
+                        EXCLUDED.provident_pension_funds_shares,
+                    asset_reconstruction_companies_shares =
+                        EXCLUDED.asset_reconstruction_companies_shares,
+                    domestic_sovereign_wealth_funds_shares =
+                        EXCLUDED.domestic_sovereign_wealth_funds_shares,
+                    nbfc_shares = EXCLUDED.nbfc_shares,
+                    other_domestic_financial_institutions_shares =
+                        EXCLUDED.other_domestic_financial_institutions_shares,
+                    fdi_shares = EXCLUDED.fdi_shares,
+                    foreign_vc_investors_shares =
+                        EXCLUDED.foreign_vc_investors_shares,
+                    foreign_sovereign_wealth_funds_shares =
+                        EXCLUDED.foreign_sovereign_wealth_funds_shares,
+                    fpi_category_i_shares =
+                        EXCLUDED.fpi_category_i_shares,
+                    fpi_category_ii_shares =
+                        EXCLUDED.fpi_category_ii_shares,
+                    overseas_depositories_shares =
+                        EXCLUDED.overseas_depositories_shares,
+                    other_foreign_institutions_shares =
+                        EXCLUDED.other_foreign_institutions_shares,
+                    government_state_shares =
+                        EXCLUDED.government_state_shares,
+                    government_promoted_companies_shares =
+                        EXCLUDED.government_promoted_companies_shares,
+                    governments_shares = EXCLUDED.governments_shares,
+                    associate_companies_subsidiaries_shares =
+                        EXCLUDED.associate_companies_subsidiaries_shares,
+                    directors_relatives_shares =
+                        EXCLUDED.directors_relatives_shares,
+                    key_managerial_personnel_shares =
+                        EXCLUDED.key_managerial_personnel_shares,
+                    promoter_relatives_shares =
+                        EXCLUDED.promoter_relatives_shares,
+                    promoter_related_trusts_shares =
+                        EXCLUDED.promoter_related_trusts_shares,
+                    iepf_shares = EXCLUDED.iepf_shares,
+                    resident_individuals_upto_2l_shares =
+                        EXCLUDED.resident_individuals_upto_2l_shares,
+                    resident_individuals_above_2l_shares =
+                        EXCLUDED.resident_individuals_above_2l_shares,
+                    nris_shares = EXCLUDED.nris_shares,
+                    foreign_nationals_shares =
+                        EXCLUDED.foreign_nationals_shares,
+                    foreign_companies_shares =
+                        EXCLUDED.foreign_companies_shares,
+                    bodies_corporate_shares =
+                        EXCLUDED.bodies_corporate_shares,
+                    other_non_institutions_shares =
+                        EXCLUDED.other_non_institutions_shares,
+                    shareholding_pattern_shares =
+                        EXCLUDED.shareholding_pattern_shares,
+                    source = EXCLUDED.source,
+                    source_url = EXCLUDED.source_url,
+                    calculation_method = EXCLUDED.calculation_method,
+                    updated_at = NOW()
+                """
+            ),
+            {
+                "company_id": company_id,
+                "effective_date": filing.effective_date,
+                "submission_date": filing.submission_date,
+                "revision_date": filing.revision_date,
+                "revised": filing.revised,
+                "total_shares": filing.total_shares,
+                "promoter_shares": filing.promoter_shares,
+                "public_shares": filing.public_shares,
+                "non_promoter_non_public_shares":
+                    filing.non_promoter_non_public_shares,
+                "government_shares": filing.government_shares,
+                "domestic_institutions_shares":
+                    filing.domestic_institutions_shares,
+                "foreign_institutions_shares":
+                    filing.foreign_institutions_shares,
+                "non_institutions_shares":
+                    filing.non_institutions_shares,
+                "mutual_funds_shares": filing.mutual_funds_shares,
+                "venture_capital_funds_shares":
+                    filing.venture_capital_funds_shares,
+                "alternative_investment_funds_shares":
+                    filing.alternative_investment_funds_shares,
+                "banks_shares": filing.banks_shares,
+                "insurance_companies_shares":
+                    filing.insurance_companies_shares,
+                "provident_pension_funds_shares":
+                    filing.provident_pension_funds_shares,
+                "asset_reconstruction_companies_shares":
+                    filing.asset_reconstruction_companies_shares,
+                "domestic_sovereign_wealth_funds_shares":
+                    filing.domestic_sovereign_wealth_funds_shares,
+                "nbfc_shares": filing.nbfc_shares,
+                "other_domestic_financial_institutions_shares":
+                    filing.other_domestic_financial_institutions_shares,
+                "fdi_shares": filing.fdi_shares,
+                "foreign_vc_investors_shares":
+                    filing.foreign_vc_investors_shares,
+                "foreign_sovereign_wealth_funds_shares":
+                    filing.foreign_sovereign_wealth_funds_shares,
+                "fpi_category_i_shares":
+                    filing.fpi_category_i_shares,
+                "fpi_category_ii_shares":
+                    filing.fpi_category_ii_shares,
+                "overseas_depositories_shares":
+                    filing.overseas_depositories_shares,
+                "other_foreign_institutions_shares":
+                    filing.other_foreign_institutions_shares,
+                "government_state_shares":
+                    filing.government_state_shares,
+                "government_promoted_companies_shares":
+                    filing.government_promoted_companies_shares,
+                "governments_shares":
+                    filing.governments_shares,
+                "associate_companies_subsidiaries_shares":
+                    filing.associate_companies_subsidiaries_shares,
+                "directors_relatives_shares":
+                    filing.directors_relatives_shares,
+                "key_managerial_personnel_shares":
+                    filing.key_managerial_personnel_shares,
+                "promoter_relatives_shares":
+                    filing.promoter_relatives_shares,
+                "promoter_related_trusts_shares":
+                    filing.promoter_related_trusts_shares,
+                "iepf_shares": filing.iepf_shares,
+                "resident_individuals_upto_2l_shares":
+                    filing.resident_individuals_upto_2l_shares,
+                "resident_individuals_above_2l_shares":
+                    filing.resident_individuals_above_2l_shares,
+                "nris_shares": filing.nris_shares,
+                "foreign_nationals_shares":
+                    filing.foreign_nationals_shares,
+                "foreign_companies_shares":
+                    filing.foreign_companies_shares,
+                "bodies_corporate_shares":
+                    filing.bodies_corporate_shares,
+                "other_non_institutions_shares":
+                    filing.other_non_institutions_shares,
+                "shareholding_pattern_shares":
+                    filing.shareholding_pattern_shares,
+                "source": filing.source,
+                "source_url": filing.xbrl_url,
+                "calculation_method": filing.calculation_method,
+            },
+        )
+
+        return share_capital_id
 
 def ingest_shareholding_for_company(
     symbol: str,
