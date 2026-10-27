@@ -1082,8 +1082,10 @@ def save_financial_statements(
                     "uq_financial_statement_identity"
                 ),
                 set_={
-                    "filing_date":
+                    "filing_date": func.coalesce(
                         stmt.excluded.filing_date,
+                        FinancialStatement.filing_date,
+                    ),
                     "revenue":
                         stmt.excluded.revenue,
                     "ebitda":
@@ -2514,6 +2516,7 @@ def process_cached_financial_filings(
                         "company_id": raw_filing.company_id,
                         "symbol": raw_filing.symbol,
                         "period_end": raw_filing.period_end,
+                        "filing_date": raw_filing.filing_date,
                         "statement_scope": raw_filing.statement_scope,
                         "submission_type": raw_filing.submission_type,
                         "audit_status": raw_filing.audit_status,
@@ -2565,6 +2568,7 @@ def process_cached_financial_filings(
                 statements = client.parse_xbrl(
                     xml_text=xml_text,
                     filing=filing,
+                    effective_filing_date=raw_filing["filing_date"],
                 )
 
                 if not statements:

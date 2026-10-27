@@ -161,6 +161,7 @@ class NSEFinancialClient:
         self,
         xml_text: str,
         filing: FinancialFiling,
+        effective_filing_date: date | None = None,
     ) -> list[dict[str, Any]]:
 
         try:
@@ -866,7 +867,7 @@ class NSEFinancialClient:
                         "%d-%b-%Y %H:%M:%S",
                     ).date()
                     if filing.broadcast_datetime
-                    else None
+                    else effective_filing_date
                 ),
 
                 # Primary P&L
