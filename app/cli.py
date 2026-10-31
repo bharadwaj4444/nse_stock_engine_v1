@@ -166,6 +166,14 @@ def main():
         ranking_rows = build_stock_rankings(target_date, target_date)
         print(f"Stock ranking rows written: {ranking_rows}")
 
+        print()
+        print("Running post-analysis verification...")
+
+        success = print_report(target_date)
+
+        if not success:
+            raise SystemExit(1)
+
     elif args.cmd == "verify":
         target_date = date.fromisoformat(args.date)
         success = print_report(target_date)
