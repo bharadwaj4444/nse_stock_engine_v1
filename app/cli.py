@@ -5,6 +5,7 @@ from datetime import date
 from dateutil.relativedelta import relativedelta
 from app.ttm import build_ttm_for_all, build_ttm_for_company
 from app.ratios import build_ratios_for_all
+from app.verification_history import get_verification_history
 
 from app.ingest import (
     download_universe,
@@ -52,6 +53,21 @@ def main():
         "--date",
         required=True,
         help="Trading date in YYYY-MM-DD format",
+    )
+
+    history = sub.add_parser(
+        "verification-history",
+        help="Show recent verification runs",
+    )
+    history.add_argument(
+        "--date",
+        help="Filter by trade date (YYYY-MM-DD)",
+    )
+    history.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of runs to display (default: 20)",
     )
 
     fd = sub.add_parser("financial-download")
@@ -180,6 +196,48 @@ def main():
 
         if not success:
             raise SystemExit(1)
+
+    elif args.cmd == "verification-history":
+        target_date = (
+            date.fromisoformat(args.date)
+            if args.date
+            else None
+        )
+
+        runs = get_verification_history(
+            target_date=target_date,
+            limit=args.limit,
+        )
+
+        if not runs:
+            print("No verification history found.")
+        else:
+            print("\nVerification History")
+            print("-" * 105)
+            print(
+                f"{'Run ID':<8} "
+                f"{'Trade Date':<12} "
+                f"{'Trigger':<10} "
+                f"{'Completed At':<30} "
+                f"{'Checks':>7} "
+                f"{'Failures':>9} "
+                f"{'Warnings':>9}"
+            )
+            print("-" * 105)
+
+            for run in runs:
+                print(
+                    f"{run.id:<8} "
+                    f"{run.trade_date!s:<12} "
+                    f"{run.trigger:<10} "
+                    f"{run.completed_at:%Y-%m-%d %H:%M:%S %z} "
+                    f"{run.check_count:>7} "
+                    f"{run.failure_count:>9} "
+                    f"{run.warning_count:>9}"
+                )
+
+            print("-" * 105)
+            print(f"Total runs displayed: {len(runs)}")
 
 def rebuild_ttm(symbol: str | None = None) -> int:
     """Rebuild TTM data for one company or the complete universe."""

@@ -2,7 +2,11 @@ from datetime import date, datetime, timezone
 
 from app.models import VerificationRun, VerificationResult
 from app.verification import CheckResult
-from app.verification_history import save_verification_run
+from app.verification_history import (
+    save_verification_run,
+    get_verification_history,
+    get_verification_run_details,
+)
 from sqlalchemy import delete, select
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -185,3 +189,96 @@ def test_failed_verification_save_rolls_back_entire_run():
         ).scalars().all()
 
         assert remaining == []
+
+def test_get_verification_history_filters_by_date_and_limit():
+    target_date = date(2099, 11, 30)
+    other_date = date(2099, 11, 29)
+    timestamp = datetime.now(timezone.utc)
+
+    run_ids = []
+
+    try:
+        for trade_date, trigger in [
+            (target_date, "analyze"),
+            (target_date, "verify"),
+            (other_date, "analyze"),
+        ]:
+            run_ids.append(
+                save_verification_run(
+                    target_date=trade_date,
+                    results=[
+                        CheckResult(status="PASS", name="Price coverage"),
+                    ],
+                    trigger=trigger,
+                    started_at=timestamp,
+                    completed_at=timestamp,
+                )
+            )
+
+        runs = get_verification_history(
+            target_date=target_date,
+            limit=1,
+        )
+
+        assert len(runs) == 1
+        assert runs[0].id == run_ids[1]
+
+    finally:
+        with SessionLocal.begin() as session:
+            session.execute(
+                delete(VerificationRun).where(
+                    VerificationRun.id.in_(run_ids)
+                )
+            )
+
+
+def test_get_verification_history_rejects_invalid_limit():
+    with pytest.raises(ValueError):
+        get_verification_history(limit=0)
+
+    with pytest.raises(ValueError):
+        get_verification_history(limit=-1)
+
+
+def test_get_verification_run_details_returns_run_and_results():
+    target_date = date(2099, 11, 28)
+    timestamp = datetime.now(timezone.utc)
+    run_id = None
+
+    try:
+        run_id = save_verification_run(
+            target_date=target_date,
+            results=[
+                CheckResult(status="PASS", name="Price coverage"),
+                CheckResult(status="WARN", name="Cash-flow coverage"),
+            ],
+            trigger="verify",
+            started_at=timestamp,
+            completed_at=timestamp,
+        )
+
+        run, results = get_verification_run_details(run_id)
+
+        assert run is not None
+        assert run.id == run_id
+        assert len(results) == 2
+        assert [result.check_name for result in results] == [
+            "Cash-flow coverage",
+            "Price coverage",
+        ]
+
+    finally:
+        if run_id is not None:
+            with SessionLocal.begin() as session:
+                session.execute(
+                    delete(VerificationRun).where(
+                        VerificationRun.id == run_id
+                    )
+                )
+
+
+def test_get_verification_run_details_returns_empty_for_unknown_id():
+    run, results = get_verification_run_details(-1)
+
+    assert run is None
+    assert results == []
