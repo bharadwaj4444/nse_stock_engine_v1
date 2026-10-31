@@ -4,6 +4,7 @@ import argparse
 from datetime import date
 from dateutil.relativedelta import relativedelta
 from app.ttm import build_ttm_for_all, build_ttm_for_company
+from app.ratios import build_ratios_for_all
 
 from app.ingest import (
     download_universe,
@@ -20,6 +21,7 @@ from app.stock_rankings import build_stock_rankings
 from app.db import engine
 from sqlalchemy import text
 from app.pipeline import backfill, daily
+from app.verification import print_report
 
 def main():
     p = argparse.ArgumentParser(description="NSE Stock Engine V1")
@@ -44,6 +46,13 @@ def main():
 
     analyze = sub.add_parser("analyze")
     analyze.add_argument("--date", required=True, help="Trading date in YYYY-MM-DD format")
+
+    verify = sub.add_parser("verify")
+    verify.add_argument(
+        "--date",
+        required=True,
+        help="Trading date in YYYY-MM-DD format",
+    )
 
     fd = sub.add_parser("financial-download")
     fd.add_argument("--symbol")
@@ -137,6 +146,9 @@ def main():
 
         print(f"Market metric rows written: {market_rows}")
 
+        ratio_rows = build_ratios_for_all()
+        print(f"Financial ratio rows upserted: {ratio_rows}")
+
         companies_valued, valuation_rows = build_valuations_for_all_companies(
             target_date, target_date
         )
@@ -153,6 +165,13 @@ def main():
 
         ranking_rows = build_stock_rankings(target_date, target_date)
         print(f"Stock ranking rows written: {ranking_rows}")
+
+    elif args.cmd == "verify":
+        target_date = date.fromisoformat(args.date)
+        success = print_report(target_date)
+
+        if not success:
+            raise SystemExit(1)
 
 def rebuild_ttm(symbol: str | None = None) -> int:
     """Rebuild TTM data for one company or the complete universe."""
