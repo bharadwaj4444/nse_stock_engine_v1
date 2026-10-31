@@ -5,7 +5,10 @@ from datetime import date
 from dateutil.relativedelta import relativedelta
 from app.ttm import build_ttm_for_all, build_ttm_for_company
 from app.ratios import build_ratios_for_all
-from app.verification_history import get_verification_history
+from app.verification_history import (
+    get_verification_history,
+    get_verification_run_details,
+)
 
 from app.ingest import (
     download_universe,
@@ -68,6 +71,17 @@ def main():
         type=int,
         default=20,
         help="Maximum number of runs to display (default: 20)",
+    )
+
+    details = sub.add_parser(
+        "verification-details",
+        help="Show details of a verification run",
+    )
+    details.add_argument(
+        "--run-id",
+        type=int,
+        required=True,
+        help="Verification run ID",
     )
 
     fd = sub.add_parser("financial-download")
@@ -238,6 +252,57 @@ def main():
 
             print("-" * 105)
             print(f"Total runs displayed: {len(runs)}")
+            
+    elif args.cmd == "verification-details":
+        run, results = get_verification_run_details(args.run_id)
+
+        if run is None:
+            print(f"Verification run {args.run_id} not found.")
+        else:
+            print("\nVerification Run Details")
+            print("=" * 80)
+            print(f"Run ID       : {run.id}")
+            print(f"Trade Date   : {run.trade_date}")
+            print(f"Trigger      : {run.trigger}")
+            print(f"Started At   : {run.started_at:%Y-%m-%d %H:%M:%S %z}")
+            print(f"Completed At : {run.completed_at:%Y-%m-%d %H:%M:%S %z}")
+            print(f"Total Checks : {run.check_count}")
+            print(f"Failures     : {run.failure_count}")
+            print(f"Warnings     : {run.warning_count}")
+
+            print("\nCheck Results")
+            print("-" * 100)
+            print(
+                f"{'Status':<10} "
+                f"{'Check Name':<40} "
+                f"{'Expected':>10} "
+                f"{'Actual':>10}"
+            )
+            print("-" * 100)
+
+            for result in results:
+                expected = (
+                    str(result.expected)
+                    if result.expected is not None
+                    else "-"
+                )
+                actual = (
+                    str(result.actual)
+                    if result.actual is not None
+                    else "-"
+                )
+
+                print(
+                    f"{result.status:<10} "
+                    f"{result.check_name:<40} "
+                    f"{expected:>10} "
+                    f"{actual:>10}"
+                )
+
+                if result.details:
+                    print(f"    Details: {result.details}")
+
+            print("-" * 100)
 
 def rebuild_ttm(symbol: str | None = None) -> int:
     """Rebuild TTM data for one company or the complete universe."""

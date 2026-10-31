@@ -189,3 +189,95 @@ def test_verification_history_applies_limit(monkeypatch):
     cli.main()
 
     assert captured == {"date": None, "limit": 5}
+
+def test_verification_details_displays_run_and_results(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["nse-engine", "verification-details", "--run-id", "9"],
+    )
+
+    run = SimpleNamespace(
+        id=9,
+        trade_date=date(2026, 10, 22),
+        trigger="verify",
+        started_at=datetime(2026, 10, 31, 15, 41, 54, tzinfo=timezone.utc),
+        completed_at=datetime(2026, 10, 31, 15, 41, 55, tzinfo=timezone.utc),
+        check_count=13,
+        failure_count=0,
+        warning_count=2,
+    )
+
+    results = [
+        SimpleNamespace(
+            status="PASS",
+            check_name="Daily price input",
+            expected=None,
+            actual=2591,
+            details="2591 active companies priced",
+        ),
+        SimpleNamespace(
+            status="WARN",
+            check_name="Active-universe price coverage",
+            expected=2613,
+            actual=2591,
+            details="22 active companies have no price row",
+        ),
+    ]
+
+    captured = {}
+
+    def fake_details(run_id):
+        captured["run_id"] = run_id
+        return run, results
+
+    monkeypatch.setattr(cli, "get_verification_run_details", fake_details)
+
+    cli.main()
+
+    output = capsys.readouterr().out
+
+    assert captured["run_id"] == 9
+    assert "Verification Run Details" in output
+    assert "Trade Date   : 2026-10-22" in output
+    assert "Trigger      : verify" in output
+    assert "Total Checks : 13" in output
+    assert "Failures     : 0" in output
+    assert "Warnings     : 2" in output
+    assert "Daily price input" in output
+    assert "Active-universe price coverage" in output
+    assert "2591" in output
+    assert "22 active companies have no price row" in output
+
+
+def test_verification_details_handles_unknown_run(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["nse-engine", "verification-details", "--run-id", "999999"],
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "get_verification_run_details",
+        lambda run_id: (None, []),
+    )
+
+    cli.main()
+
+    output = capsys.readouterr().out
+
+    assert "Verification run 999999 not found." in output
+
+
+def test_verification_details_requires_run_id(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["nse-engine", "verification-details"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 2
