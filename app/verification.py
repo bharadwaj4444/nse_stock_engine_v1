@@ -1,13 +1,12 @@
-
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 
 from sqlalchemy import text
 
 from app.db import engine
-
+from app.verification_history import save_verification_run
 
 @dataclass(frozen=True)
 class CheckResult:
@@ -381,8 +380,18 @@ def run_verification(target_date: date) -> list[CheckResult]:
     return results
 
 
-def print_report(target_date: date) -> bool:
+def print_report(
+    target_date: date,
+    trigger: str = "verify",
+) -> bool:
+    started_at = datetime.now(timezone.utc)
+
     results = run_verification(target_date)
+
+    completed_at = datetime.now(timezone.utc)
+
+    failures = sum(r.status == "FAIL" for r in results)
+    warnings = sum(r.status == "WARN" for r in results)
 
     print(f"\nVerification report: {target_date}")
     print("-" * 78)
@@ -392,18 +401,25 @@ def print_report(target_date: date) -> bool:
         if result.expected is not None:
             counts = f" [{result.actual}/{result.expected}]"
 
-        details = f" — {result.details}" if result.details else ""
+        details = f" - {result.details}" if result.details else ""
         print(
             f"{result.status:4} | {result.name}{counts}{details}"
         )
-
-    failures = sum(r.status == "FAIL" for r in results)
-    warnings = sum(r.status == "WARN" for r in results)
 
     print("-" * 78)
     print(
         f"Failures: {failures}; warnings: {warnings}; "
         f"checks: {len(results)}"
     )
+
+    run_id = save_verification_run(
+        target_date=target_date,
+        results=results,
+        trigger=trigger,
+        started_at=started_at,
+        completed_at=completed_at,
+    )
+
+    print(f"Verification history saved (run ID: {run_id})")
 
     return failures == 0

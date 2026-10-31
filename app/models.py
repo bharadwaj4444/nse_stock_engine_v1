@@ -15,7 +15,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
     pass
@@ -1203,4 +1203,60 @@ class ShareholdingMetrics(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+
+class VerificationRun(Base):
+    __tablename__ = "verification_runs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    trade_date: Mapped[date] = mapped_column(Date, nullable=False)
+    trigger: Mapped[str] = mapped_column(String(20), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    warning_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    check_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    results: Mapped[list["VerificationResult"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_verification_runs_trade_date_started_at",
+            "trade_date",
+            "started_at",
+        ),
+    )
+
+class VerificationResult(Base):
+    __tablename__ = "verification_results"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("verification_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    check_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    status: Mapped[str] = mapped_column(String(10), nullable=False)
+    expected: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    details: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    run: Mapped["VerificationRun"] = relationship(back_populates="results")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "check_name",
+            name="uq_verification_results_run_check",
+        ),
+        Index("ix_verification_results_run_id", "run_id"),
     )

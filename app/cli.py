@@ -169,14 +169,14 @@ def main():
         print()
         print("Running post-analysis verification...")
 
-        success = print_report(target_date)
+        success = print_report(target_date, trigger="analyze")
 
         if not success:
             raise SystemExit(1)
 
     elif args.cmd == "verify":
         target_date = date.fromisoformat(args.date)
-        success = print_report(target_date)
+        success = print_report(target_date, trigger="verify")
 
         if not success:
             raise SystemExit(1)

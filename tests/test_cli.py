@@ -79,8 +79,9 @@ def test_analyze_exits_when_post_analysis_verification_fails(monkeypatch):
 
     verification_dates = []
 
-    def failed_verification(check_date):
+    def failed_verification(check_date, trigger="verify"):
         verification_dates.append(check_date)
+        verification_dates.append(trigger)
         return False
 
     monkeypatch.setattr(cli, "print_report", failed_verification)
@@ -89,4 +90,4 @@ def test_analyze_exits_when_post_analysis_verification_fails(monkeypatch):
         cli.main()
 
     assert exc_info.value.code == 1
-    assert verification_dates == [target_date]
+    assert verification_dates == [target_date, "analyze"]
