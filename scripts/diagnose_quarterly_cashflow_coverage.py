@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import csv
 import xml.etree.ElementTree as ET
 
@@ -36,21 +37,16 @@ SELECT
     r.company_id,
     r.symbol,
     r.period_end,
+    r.filing_date,
     r.statement_scope,
     r.submission_type,
     r.source_reference,
     r.raw_relative_path,
-    r.processing_status
+    r.file_size,
+    r.sha256,
+    r.processing_status,
+    r.processing_error
 FROM financial_raw_filings r
-WHERE EXISTS (
-    SELECT 1
-    FROM financial_statements s
-    WHERE s.company_id = r.company_id
-      AND s.source_reference = r.source_reference
-      AND s.period_end = r.period_end
-      AND s.statement_scope = r.statement_scope
-      AND s.period_type = 'quarterly'
-)
 ORDER BY
     r.period_end,
     r.statement_scope,
@@ -132,6 +128,33 @@ def classify(result: dict) -> str:
 
     return "NO_CASH_CONCEPTS"
 
+def verify_file_integrity(path: Path, expected_size: int, expected_sha256: str) -> dict:
+    if not path.is_file():
+        return {
+            "file_exists": False,
+            "actual_file_size": None,
+            "actual_sha256": "",
+            "size_matches": False,
+            "sha256_matches": False,
+        }
+
+    digest = hashlib.sha256()
+    actual_size = 0
+
+    with path.open("rb") as file:
+        while chunk := file.read(1024 * 1024):
+            actual_size += len(chunk)
+            digest.update(chunk)
+
+    actual_hash = digest.hexdigest()
+
+    return {
+        "file_exists": True,
+        "actual_file_size": actual_size,
+        "actual_sha256": actual_hash,
+        "size_matches": actual_size == expected_size,
+        "sha256_matches": actual_hash.lower() == (expected_sha256 or "").lower(),
+    }
 
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -178,6 +201,17 @@ def main() -> None:
                 "error": "File does not exist",
             }
         else:
+            integrity = verify_file_integrity(
+                xml_path,
+                filing["file_size"],
+                filing["sha256"],
+            ) if xml_path.is_file() else {
+                "file_exists": False,
+                "actual_file_size": None,
+                "actual_sha256": "",
+                "size_matches": False,
+                "sha256_matches": False,
+            }
             key = str(xml_path).lower()
 
             if key not in cache:
@@ -192,6 +226,7 @@ def main() -> None:
             "company_id": filing["company_id"],
             "symbol": filing["symbol"],
             "period_end": period_end.isoformat(),
+            "filing_date":filing["filing_date"],
             "financial_year": period_end.year,
             "period_month": period_end.month,
             "statement_scope": filing["statement_scope"],
@@ -199,8 +234,10 @@ def main() -> None:
             "source_reference": filing["source_reference"],
             "raw_relative_path": filing["raw_relative_path"],
             "processing_status": filing["processing_status"],
+            "processing_error":filing["processing_error"],
             "classification": classify(result),
             **result,
+            **integrity,
         }
 
         detail_rows.append(row)
