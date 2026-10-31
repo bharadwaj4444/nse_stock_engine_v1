@@ -6,6 +6,7 @@ from dateutil.relativedelta import relativedelta
 from app.ttm import build_ttm_for_all, build_ttm_for_company
 from app.ratios import build_ratios_for_all
 from app.verification_history import (
+    compare_verification_runs,
     get_verification_history,
     get_verification_run_details,
 )
@@ -82,6 +83,23 @@ def main():
         type=int,
         required=True,
         help="Verification run ID",
+    )
+
+    compare = sub.add_parser(
+        "verification-compare",
+        help="Compare two verification runs",
+    )
+    compare.add_argument(
+        "--older-run-id",
+        type=int,
+        required=True,
+        help="Older verification run ID",
+    )
+    compare.add_argument(
+        "--newer-run-id",
+        type=int,
+        required=True,
+        help="Newer verification run ID",
     )
 
     fd = sub.add_parser("financial-download")
@@ -251,8 +269,8 @@ def main():
                 )
 
             print("-" * 105)
-            print(f"Total runs displayed: {len(runs)}")
-            
+        print(f"Total runs displayed: {len(runs)}")
+
     elif args.cmd == "verification-details":
         run, results = get_verification_run_details(args.run_id)
 
@@ -303,6 +321,73 @@ def main():
                     print(f"    Details: {result.details}")
 
             print("-" * 100)
+
+    elif args.cmd == "verification-compare":
+        result = compare_verification_runs(
+            args.older_run_id,
+            args.newer_run_id,
+        )
+
+        if result is None:
+            print("One or both verification runs were not found.")
+        else:
+            older_run, newer_run, comparison = result
+
+            print("\nVerification Run Comparison")
+            print("=" * 80)
+            print(
+                f"Older Run: {older_run.id} "
+                f"({older_run.trade_date}, {older_run.trigger})"
+            )
+            print(
+                f"Newer Run: {newer_run.id} "
+                f"({newer_run.trade_date}, {newer_run.trigger})"
+            )
+
+            print("\nSummary")
+            print("-" * 80)
+            print(f"Changed checks  : {len(comparison['changed'])}")
+            print(f"Added checks    : {len(comparison['added'])}")
+            print(f"Removed checks  : {len(comparison['removed'])}")
+            print(f"Unchanged checks: {len(comparison['unchanged'])}")
+
+            if comparison["changed"]:
+                print("\nChanged Checks")
+                print("-" * 80)
+
+                for item in comparison["changed"]:
+                    older = item["older"]
+                    newer = item["newer"]
+
+                    print(f"\n{item['check_name']}")
+                    print(f"  Differences: {', '.join(item['differences'])}")
+                    print(
+                        f"  Status  : {older.status} -> {newer.status}"
+                    )
+                    print(
+                        f"  Expected: {older.expected} -> {newer.expected}"
+                    )
+                    print(
+                        f"  Actual  : {older.actual} -> {newer.actual}"
+                    )
+
+            if comparison["added"]:
+                print("\nNew Checks")
+                print("-" * 80)
+                for item in comparison["added"]:
+                    print(f"  + {item.check_name}: {item.status}")
+
+            if comparison["removed"]:
+                print("\nRemoved Checks")
+                print("-" * 80)
+                for item in comparison["removed"]:
+                    print(f"  - {item.check_name}: {item.status}")
+
+            if comparison["unchanged"]:
+                print("\nUnchanged Checks")
+                print("-" * 80)
+                for item in comparison["unchanged"]:
+                    print(f"  = {item.check_name}: {item.status}")
 
 def rebuild_ttm(symbol: str | None = None) -> int:
     """Rebuild TTM data for one company or the complete universe."""

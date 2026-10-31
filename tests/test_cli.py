@@ -281,3 +281,116 @@ def test_verification_details_requires_run_id(monkeypatch):
         cli.main()
 
     assert exc_info.value.code == 2
+
+
+
+def test_verification_compare_displays_results(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "nse-engine",
+            "verification-compare",
+            "--older-run-id",
+            "9",
+            "--newer-run-id",
+            "30",
+        ],
+    )
+
+    older_run = SimpleNamespace(
+        id=9,
+        trade_date=date(2026, 10, 22),
+        trigger="verify",
+    )
+    newer_run = SimpleNamespace(
+        id=30,
+        trade_date=date(2026, 10, 22),
+        trigger="verify",
+    )
+
+    changed = {
+        "check_name": "Daily price input",
+        "differences": ["status", "actual"],
+        "older": SimpleNamespace(
+            status="PASS", expected=None, actual=2591
+        ),
+        "newer": SimpleNamespace(
+            status="FAIL", expected=None, actual=2500
+        ),
+    }
+
+    comparison = {
+        "changed": [changed],
+        "added": [SimpleNamespace(check_name="New check", status="PASS")],
+        "removed": [SimpleNamespace(check_name="Old check", status="WARN")],
+        "unchanged": [SimpleNamespace(check_name="Existing check", status="PASS")],
+    }
+
+    captured = {}
+
+    def fake_compare(older_run_id, newer_run_id):
+        captured["ids"] = (older_run_id, newer_run_id)
+        return older_run, newer_run, comparison
+
+    monkeypatch.setattr(cli, "compare_verification_runs", fake_compare)
+
+    cli.main()
+
+    output = capsys.readouterr().out
+
+    assert captured["ids"] == (9, 30)
+    assert "Verification Run Comparison" in output
+    assert "Changed checks  : 1" in output
+    assert "Added checks    : 1" in output
+    assert "Removed checks  : 1" in output
+    assert "Unchanged checks: 1" in output
+    assert "Daily price input" in output
+    assert "New check" in output
+    assert "Old check" in output
+    assert "Existing check" in output
+
+
+def test_verification_compare_handles_unknown_run(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "nse-engine",
+            "verification-compare",
+            "--older-run-id",
+            "9",
+            "--newer-run-id",
+            "999999",
+        ],
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "compare_verification_runs",
+        lambda older_run_id, newer_run_id: None,
+    )
+
+    cli.main()
+
+    output = capsys.readouterr().out
+
+    assert "One or both verification runs were not found." in output
+
+
+def test_verification_compare_requires_both_run_ids(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "nse-engine",
+            "verification-compare",
+            "--older-run-id",
+            "9",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 2
