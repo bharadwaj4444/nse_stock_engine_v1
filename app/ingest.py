@@ -51,8 +51,14 @@ def _same_scope_submission(
     a: dict[str, Any],
     b: dict[str, Any],
 ) -> bool:
+    company_a = a.get("company_id")
+    company_b = b.get("company_id")
+
     return (
-        a.get("statement_scope") == b.get("statement_scope")
+        company_a is not None
+        and company_b is not None
+        and company_a == company_b
+        and a.get("statement_scope") == b.get("statement_scope")
         and a.get("submission_type") == b.get("submission_type")
     )
 
@@ -366,12 +372,6 @@ def _derive_quarterly_cash_flow(
             "period_end"
         ].isoformat()
 
-        if (
-            ytd_ocf is None
-            and ytd_capex is None
-        ):
-            continue
-
         # ----------------------------------------------------
         # Determine whether the source contains a direct
         # quarterly cash-flow period.
@@ -405,6 +405,15 @@ def _derive_quarterly_cash_flow(
             except ValueError:
                 direct_cash_flow = False
 
+        
+        if (
+            ytd_ocf is None
+            and ytd_capex is None 
+            and not direct_cash_flow
+        ):
+            continue
+
+
         # ----------------------------------------------------
         # Case 1: direct quarterly cash flow
         # ----------------------------------------------------
@@ -431,17 +440,53 @@ def _derive_quarterly_cash_flow(
                 ):
                     continue
 
+                candidate_start = candidate.get(
+                    "_ytd_start"
+                )
+                candidate_end = candidate.get(
+                    "_ytd_end"
+                )
+
+                # A direct Q1 cash-flow statement has no YTD
+                # metadata. Its direct cash-flow period can
+                # serve as the cumulative baseline for H1.
                 if (
-                    candidate.get("_ytd_start")
-                    != ytd_start
+                    candidate_start is None
+                    and candidate.get("_cash_flow_start") is not None
+                    and candidate.get("_cash_flow_end")
+                    == candidate["period_end"].isoformat()
+                    and candidate.get("operating_cash_flow") is not None
+                    and candidate.get("capital_expenditure") is not None
                 ):
+                    try:
+                        direct_start = date.fromisoformat(
+                            candidate["_cash_flow_start"]
+                        )
+                        direct_end = date.fromisoformat(
+                            candidate["_cash_flow_end"]
+                        )
+
+                        direct_days = (
+                            direct_end - direct_start
+                        ).days
+
+                        if 75 <= direct_days <= 105:
+                            candidate_start = (
+                                candidate["_cash_flow_start"]
+                            )
+                            candidate_end = (
+                                candidate["_cash_flow_end"]
+                            )
+
+                    except ValueError:
+                        pass
+
+                if candidate_start != ytd_start:
                     continue
 
                 if (
-                    candidate.get("_ytd_end")
-                    != candidate[
-                        "period_end"
-                    ].isoformat()
+                    candidate_end
+                    != candidate["period_end"].isoformat()
                 ):
                     continue
 

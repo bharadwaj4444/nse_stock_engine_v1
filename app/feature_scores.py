@@ -11,6 +11,43 @@ from app.db import SessionLocal
 CALCULATION_METHOD = "CROSS_SECTIONAL_PERCENTILE_V1"
 STATEMENT_SCOPE = "Consolidated"
 
+RED_GREEN_THRESHOLD = 50.0
+
+RED_GREEN_RED = "red"
+RED_GREEN_GREEN = "green"
+RED_GREEN_NEEDS_DATA = "needs_data"
+
+
+def red_green_label(score: float | None) -> str:
+    """
+    Map a cross-sectional percentile score to a red/green presentation.
+
+    - score < RED_GREEN_THRESHOLD (50)            -> "red"
+    - score >= RED_GREEN_THRESHOLD (50)          -> "green"
+    - score is None (insufficient valid data)    -> "needs_data"
+
+    Red/green is a UI presentation concern; the API delivers the raw
+    score and the UI maps it to red/green.
+    """
+
+    if score is None:
+        return RED_GREEN_NEEDS_DATA
+
+    if score < RED_GREEN_THRESHOLD:
+        return RED_GREEN_RED
+
+    return RED_GREEN_GREEN
+
+
+def red_green_payload(score: float | None) -> dict:
+    """Delivery contract for red/green scoring output."""
+
+    return {
+        "score": score,
+        "red_green": red_green_label(score),
+    }
+
+
 
 def build_feature_scores(
     start_date: date,

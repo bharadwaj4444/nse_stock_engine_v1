@@ -79,6 +79,19 @@ def test_analyze_exits_when_post_analysis_verification_fails(monkeypatch):
         lambda *args: 1,
     )
 
+    loop_calls = []
+
+    def fake_closed_loop(trade_date):
+        loop_calls.append(trade_date)
+        return SimpleNamespace(
+            scored=[],
+            hold_decisions=[],
+            outcomes=[],
+            overrides=[],
+        )
+
+    monkeypatch.setattr(cli, "run_closed_loop_for_date", fake_closed_loop)
+
     verification_dates = []
 
     def failed_verification(check_date, trigger="verify"):
@@ -93,6 +106,7 @@ def test_analyze_exits_when_post_analysis_verification_fails(monkeypatch):
 
     assert exc_info.value.code == 1
     assert verification_dates == [target_date, "analyze"]
+    assert loop_calls == [target_date]
 
 def test_verification_history_displays_runs(monkeypatch, capsys):
     monkeypatch.setattr(

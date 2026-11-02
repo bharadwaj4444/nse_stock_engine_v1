@@ -4,6 +4,12 @@ from app.ingest import download_universe, ingest_bhavcopy
 from app.indicators import calculate_for_date
 from app.sources.nse import NSEClient
 from app.sources.nse_calendar import NSETradingCalendar
+from app.adapters.outbound.backtest import BacktestAdapter
+from app.adapters.outbound.market_data import MarketDataAdapter
+from app.adapters.outbound.news_source import NewsSignalSourceAdapter
+from app.adapters.outbound.persistence import RecommendationPersistenceAdapter
+from app.core.engine import run_closed_loop
+from app.db import SessionLocal
 
 
 calendar = NSETradingCalendar()
@@ -83,6 +89,30 @@ def backfill(
     )
 
 
+def run_closed_loop_for_date(trade_date: date):
+    """
+    Run the closed-loop recommendation stages for one trading date.
+
+    Stages: score -> hold -> verify -> refine -> override.
+    """
+
+    with SessionLocal() as session:
+        ranking_store = RecommendationPersistenceAdapter(session)
+        market_data = MarketDataAdapter(session)
+        news_source = NewsSignalSourceAdapter(session)
+        backtest = BacktestAdapter(session)
+
+        result = run_closed_loop(
+            trade_date,
+            ranking_store=ranking_store,
+            market_data=market_data,
+            news_source=news_source,
+            backtest=backtest,
+        )
+
+    return result
+
+
 def daily():
     print("Refreshing NSE universe...")
     download_universe()
@@ -115,6 +145,13 @@ def daily():
             print(
                 f"Indicators calculated: "
                 f"{d}"
+            )
+
+            loop_result = run_closed_loop_for_date(d)
+
+            print(
+                f"Closed-loop scoring complete: "
+                f"{len(loop_result.scored)} instruments scored"
             )
 
             return

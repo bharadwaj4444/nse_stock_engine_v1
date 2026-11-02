@@ -3,6 +3,7 @@ from datetime import date
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import select, text
 
+from app.adapters.outbound.persistence import RecommendationPersistenceAdapter
 from app.db import engine, SessionLocal
 from app.models import Company, DailyPrice, TechnicalIndicator
 from app.fundamental_analysis import (
@@ -30,6 +31,8 @@ def root():
             "/fundamentals/{symbol}",
             "/fundamentals/{symbol}/history",
             "/stocks/{symbol}",
+            "/recommendations/red-green",
+            "/recommendations/holds",
         ],
     }
 
@@ -177,4 +180,76 @@ def stock_analysis(
         },
         "technical": technical,
         "fundamentals": fundamentals_data,
+    }
+
+
+@app.get("/recommendations/red-green")
+def red_green_recommendations(
+    trade_date: date | None = None,
+):
+    """
+    Deliver red/green-scored recommendations.
+
+    The API returns the score in %; the UI maps the score to red/green.
+    """
+
+    target_date = trade_date or date.today()
+
+    with SessionLocal() as session:
+        ranking_store = RecommendationPersistenceAdapter(session)
+        scored = ranking_store.get_rankings(
+            trade_date=target_date,
+            statement_scope="Consolidated",
+        )
+
+    recommendations = []
+
+    for instrument in scored:
+        recommendations.append({
+            "company_id": instrument.company_id,
+            "trade_date": instrument.trade_date,
+            "score": instrument.score,
+            "red_green": instrument.red_green,
+        })
+
+    return {
+        "trade_date": target_date,
+        "red_green_threshold": 50.0,
+        "recommendations": recommendations,
+    }
+
+
+@app.get("/recommendations/holds")
+def hold_decisions(
+    trade_date: date | None = None,
+):
+    """
+    Deliver engine-decided holds for a ranking cycle.
+    """
+
+    target_date = trade_date or date.today()
+
+    with SessionLocal() as session:
+        hold_store = RecommendationPersistenceAdapter(session)
+        decisions = hold_store.get_hold_decisions(trade_date=target_date)
+
+    holds = []
+
+    for decision in decisions:
+        holds.append({
+            "company_id": decision.company_id,
+            "trade_date": decision.trade_date,
+            "action": decision.action,
+            "score": decision.score,
+            "red_green": decision.red_green,
+            "action_reason": decision.action_reason,
+            "hold_until": decision.hold_until,
+            "sell_target_price": decision.sell_target_price,
+            "sell_target_date": decision.sell_target_date,
+            "expected_return": decision.expected_return,
+        })
+
+    return {
+        "trade_date": target_date,
+        "holds": holds,
     }

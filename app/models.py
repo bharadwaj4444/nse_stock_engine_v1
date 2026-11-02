@@ -1260,3 +1260,178 @@ class VerificationResult(Base):
         ),
         Index("ix_verification_results_run_id", "run_id"),
     )
+
+
+class HoldDecision(Base):
+    __tablename__ = "hold_decisions"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "trade_date",
+            name="uq_hold_decisions_company_trade_date",
+        ),
+        Index(
+            "ix_hold_decisions_trade_date",
+            "trade_date",
+        ),
+        Index(
+            "ix_hold_decisions_company_trade_date",
+            "company_id",
+            "trade_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    trade_date: Mapped[date] = mapped_column(Date, nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    score: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    red_green: Mapped[str] = mapped_column(String(20), nullable=False, default="needs_data")
+    action_reason: Mapped[str] = mapped_column(String(50), nullable=False, default="missing_score")
+    hold_until: Mapped[date | None] = mapped_column(Date)
+    sell_target_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    sell_target_date: Mapped[date | None] = mapped_column(Date)
+    expected_return: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class Outcome(Base):
+    __tablename__ = "outcomes"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "trade_date",
+            name="uq_outcomes_company_trade_date",
+        ),
+        Index(
+            "ix_outcomes_trade_date",
+            "trade_date",
+        ),
+        Index(
+            "ix_outcomes_company_trade_date",
+            "company_id",
+            "trade_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    trade_date: Mapped[date] = mapped_column(Date, nullable=False)
+    expected_return: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    actual_return: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    deviation: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class NewsSignal(Base):
+    __tablename__ = "news_signals"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "trade_date",
+            "source",
+            name="uq_news_signals_company_date_source",
+        ),
+        Index(
+            "ix_news_signals_trade_date",
+            "trade_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    trade_date: Mapped[date] = mapped_column(Date, nullable=False)
+    source: Mapped[str] = mapped_column(String(50), nullable=False)
+    sentiment: Mapped[str] = mapped_column(String(20), nullable=False, default="neutral")
+    score_adjustment: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    significance: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")
+
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class Override(Base):
+    __tablename__ = "overrides"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "trade_date",
+            "source",
+            name="uq_overrides_company_date_source",
+        ),
+        Index(
+            "ix_overrides_trade_date",
+            "trade_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    trade_date: Mapped[date] = mapped_column(Date, nullable=False)
+    source: Mapped[str] = mapped_column(String(50), nullable=False)
+    sentiment: Mapped[str] = mapped_column(String(20), nullable=False, default="neutral")
+    original_score: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    adjusted_score: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    adjustment: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    significance_status: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")
+    applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )

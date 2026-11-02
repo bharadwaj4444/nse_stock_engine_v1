@@ -25,7 +25,7 @@ from app.feature_scores import build_feature_scores
 from app.stock_rankings import build_stock_rankings
 from app.db import engine
 from sqlalchemy import text
-from app.pipeline import backfill, daily
+from app.pipeline import backfill, daily, run_closed_loop_for_date
 from app.verification import print_report
 
 def main():
@@ -54,6 +54,16 @@ def main():
 
     verify = sub.add_parser("verify")
     verify.add_argument(
+        "--date",
+        required=True,
+        help="Trading date in YYYY-MM-DD format",
+    )
+
+    closed_loop = sub.add_parser(
+        "closed-loop",
+        help="Run the closed-loop recommendation stages for a date",
+    )
+    closed_loop.add_argument(
         "--date",
         required=True,
         help="Trading date in YYYY-MM-DD format",
@@ -215,6 +225,16 @@ def main():
         print(f"Stock ranking rows written: {ranking_rows}")
 
         print()
+        print("Running closed-loop stages (score -> hold -> verify -> refine -> override)...")
+
+        loop_result = run_closed_loop_for_date(target_date)
+
+        print(f"Closed-loop scored instruments: {len(loop_result.scored)}")
+        print(f"Closed-loop hold decisions: {len(loop_result.hold_decisions)}")
+        print(f"Closed-loop outcomes: {len(loop_result.outcomes)}")
+        print(f"Closed-loop overrides: {len(loop_result.overrides)}")
+
+        print()
         print("Running post-analysis verification...")
 
         success = print_report(target_date, trigger="analyze")
@@ -228,6 +248,29 @@ def main():
 
         if not success:
             raise SystemExit(1)
+
+    elif args.cmd == "closed-loop":
+        target_date = date.fromisoformat(args.date)
+
+        loop_result = run_closed_loop_for_date(target_date)
+
+        print(f"Closed-loop cycle complete: {target_date}")
+        print(f"Instruments scored: {len(loop_result.scored)}")
+        print(f"Hold decisions: {len(loop_result.hold_decisions)}")
+        print(f"Outcomes: {len(loop_result.outcomes)}")
+        print(f"Overrides: {len(loop_result.overrides)}")
+
+        red_green_counts = {"green": 0, "red": 0, "needs_data": 0}
+
+        for instrument in loop_result.scored:
+            red_green_counts[instrument.red_green] = (
+                red_green_counts.get(instrument.red_green, 0) + 1
+            )
+
+        print(
+            "Red/green distribution: "
+            f"{red_green_counts}"
+        )
 
     elif args.cmd == "verification-history":
         target_date = (
