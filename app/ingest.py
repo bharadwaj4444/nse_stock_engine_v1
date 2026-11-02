@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import select, func, text, update
+from sqlalchemy import select, func, text, update, delete
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,8 @@ from app.models import (
     IngestionRun,
     BenchmarkPrice,
     FinancialRawFiling,
+    FinancialStatementVersion,
+    FinancialStatementVersionSource,
 )
 from app.sources.nse import NSEClient
 from app.sources.nse_financials import FinancialFiling, NSEFinancialClient
@@ -124,6 +126,116 @@ def _find_previous_cumulative(
 
     return None
 
+def _json_safe_financial_value(value: Any) -> Any:
+    """
+    Convert parser values into JSONB-compatible values.
+
+    Decimal values are stored as strings to preserve precision.
+    Dates and datetimes are stored as ISO-8601 strings.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    if isinstance(value, Decimal):
+        return str(value)
+
+    if isinstance(value, datetime):
+        return value.isoformat()
+
+    if isinstance(value, date):
+        return value.isoformat()
+
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_financial_value(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [
+            _json_safe_financial_value(item)
+            for item in value
+        ]
+
+    raise TypeError(
+        f"Unsupported financial snapshot value: {type(value).__name__}"
+    )
+
+def _record_derivation_source(
+    statement: dict[str, Any],
+    source_statement: dict[str, Any],
+    *,
+    component: str,
+    source_role: str,
+    derivation_method: str,
+) -> None:
+    source_raw_filing_id = source_statement.get(
+        "_raw_filing_id"
+    )
+
+    if source_raw_filing_id is None:
+        return
+
+    sources = statement.setdefault(
+        "_derivation_sources",
+        [],
+    )
+
+    item = {
+        "source_raw_filing_id": source_raw_filing_id,
+        "component": component,
+        "source_role": source_role,
+        "derivation_method": derivation_method,
+    }
+
+    if item not in sources:
+        sources.append(item)
+
+
+def _pnl_has_subtractable_values(
+    statement: dict[str, Any],
+    previous: dict[str, Any],
+) -> bool:
+    fields = (
+        ("revenue", "_ytd_revenue"),
+        ("profit_before_tax", "_ytd_profit_before_tax"),
+        ("net_income", "_ytd_net_income"),
+    )
+
+    return any(
+        _value_for_cumulative(statement, field, ytd_field)
+        is not None
+        and _value_for_cumulative(previous, field, ytd_field)
+        is not None
+        for field, ytd_field in fields
+    )
+
+def _capture_reported_values(
+    statement: dict[str, Any],
+) -> None:
+    """
+    Preserve parser output before any quarterly derivation.
+
+    Excludes fields added by the ingestion/derivation pipeline.
+    Parser context fields such as _ytd_start and _pnl_context_type
+    are deliberately retained.
+    """
+    excluded_keys = {
+        "company_id",
+        "_raw_filing_id",
+        "_reported_values",
+        "_derivation_sources",
+    }
+
+    reported = {
+        key: value
+        for key, value in statement.items()
+        if key not in excluded_keys
+    }
+
+    statement["_reported_values"] = (
+        _json_safe_financial_value(reported)
+    )
 
 # ============================================================
 # Quarterly P&L derivation
@@ -315,10 +427,32 @@ def _derive_quarterly_pnl(
             statement["eps"] = None
             continue
 
+        has_derivable_values = _pnl_has_subtractable_values(
+            statement,
+            previous,
+        )
+
         _derive_quarter_pnl(
             statement,
             previous,
         )
+
+        if has_derivable_values:
+            _record_derivation_source(
+                statement,
+                statement,
+                component="PNL",
+                source_role="CURRENT_CUMULATIVE",
+                derivation_method="YTD_DIFFERENCE",
+            )
+
+            _record_derivation_source(
+                statement,
+                previous,
+                component="PNL",
+                source_role="PREVIOUS_CUMULATIVE",
+                derivation_method="YTD_DIFFERENCE",
+            )
 
 
 # ============================================================
@@ -542,6 +676,31 @@ def _derive_quarterly_cash_flow(
                         - previous_capex
                     )
 
+                has_cash_flow_difference = (
+                    ytd_ocf is not None
+                    and previous_ocf is not None
+                ) or (
+                    ytd_capex is not None
+                    and previous_capex is not None
+                )
+
+                if has_cash_flow_difference:
+                    _record_derivation_source(
+                        statement,
+                        statement,
+                        component="CASH_FLOW",
+                        source_role="CURRENT_CUMULATIVE",
+                        derivation_method="YTD_DIFFERENCE",
+                    )
+
+                    _record_derivation_source(
+                        statement,
+                        previous,
+                        component="CASH_FLOW",
+                        source_role="PREVIOUS_CUMULATIVE",
+                        derivation_method="YTD_DIFFERENCE",
+                    )
+
         # ----------------------------------------------------
         # Free cash flow
         # ----------------------------------------------------
@@ -675,10 +834,32 @@ def _derive_q4_pnl(
         ) != "ytd":
             continue
 
+        has_derivable_values = _pnl_has_subtractable_values(
+            q4_statement,
+            previous,
+        )
+
         _derive_quarter_pnl(
             q4_statement,
             previous,
         )
+
+        if has_derivable_values:
+            _record_derivation_source(
+                q4_statement,
+                q4_statement,
+                component="PNL",
+                source_role="CURRENT_CUMULATIVE",
+                derivation_method="YTD_DIFFERENCE",
+            )
+
+            _record_derivation_source(
+                q4_statement,
+                previous,
+                component="PNL",
+                source_role="PREVIOUS_CUMULATIVE",
+                derivation_method="YTD_DIFFERENCE",
+            )
 
 
 # ============================================================
@@ -901,6 +1082,28 @@ def _derive_q4_cash_flow(
                 - abs(q4_capex)
             )
 
+        has_cash_flow_difference = (
+            annual_q4_ocf is not None
+            or annual_q4_capex is not None
+        )
+
+        if has_cash_flow_difference:
+            _record_derivation_source(
+                q4_statement,
+                annual,
+                component="CASH_FLOW",
+                source_role="ANNUAL_TOTAL",
+                derivation_method="ANNUAL_MINUS_YTD",
+            )
+
+            _record_derivation_source(
+                q4_statement,
+                previous,
+                component="CASH_FLOW",
+                source_role="PREVIOUS_CUMULATIVE",
+                derivation_method="ANNUAL_MINUS_YTD",
+            )
+
 
 # ============================================================
 # Financial statement derivation pipeline
@@ -1039,6 +1242,116 @@ def download_universe() -> int:
 # Financial statement persistence
 # ============================================================
 
+_VERSION_ANALYTICAL_FIELDS = (
+    "revenue",
+    "ebitda",
+    "ebit",
+    "profit_before_tax",
+    "net_income",
+    "eps",
+    "total_assets",
+    "total_equity",
+    "total_debt",
+    "cash_and_equivalents",
+    "operating_cash_flow",
+    "capital_expenditure",
+    "free_cash_flow",
+)
+
+
+def _save_financial_statement_version(
+    db,
+    row: dict,
+) -> None:
+    raw_filing_id = row.get("_raw_filing_id")
+    reported_values = row.get("_reported_values")
+
+    # Only persist versions originating from the cached raw-filing
+    # processing path, where both identity and original snapshot exist.
+    if raw_filing_id is None or not isinstance(reported_values, dict):
+        return
+
+    version_values = {
+        "raw_filing_id": raw_filing_id,
+        "company_id": row["company_id"],
+        "period_type": row["period_type"],
+        "period_end": row["period_end"],
+        "filing_date": row.get("filing_date"),
+        **{
+            field: row.get(field)
+            for field in _VERSION_ANALYTICAL_FIELDS
+        },
+        "source": row["source"],
+        "source_reference": row.get("source_reference"),
+        "statement_scope": row.get(
+            "statement_scope",
+            "UNKNOWN",
+        ),
+        "submission_type": row.get(
+            "submission_type",
+            "ORIGINAL",
+        ),
+        "audit_status": row.get("audit_status"),
+        "reporting_standard": row.get("reporting_standard"),
+        "source_url": row.get("source_url"),
+        "reported_values": reported_values,
+    }
+
+    stmt = insert(
+        FinancialStatementVersion
+    ).values(**version_values)
+
+    update_fields = {
+        "filing_date": stmt.excluded.filing_date,
+        **{
+            field: getattr(stmt.excluded, field)
+            for field in _VERSION_ANALYTICAL_FIELDS
+        },
+        "source": stmt.excluded.source,
+        "source_reference": stmt.excluded.source_reference,
+        "audit_status": stmt.excluded.audit_status,
+        "reporting_standard": stmt.excluded.reporting_standard,
+        "source_url": stmt.excluded.source_url,
+        "reported_values": stmt.excluded.reported_values,
+    }
+
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_financial_statement_version_identity",
+        set_=update_fields,
+    ).returning(FinancialStatementVersion.id)
+
+    version_id = db.execute(stmt).scalar_one()
+
+    # Replace lineage rather than append it. This makes reprocessing
+    # the same filing deterministic and removes obsolete dependencies.
+    db.execute(
+        delete(FinancialStatementVersionSource).where(
+            FinancialStatementVersionSource.version_id == version_id
+        )
+    )
+
+    for source in row.get("_derivation_sources", []):
+        source_raw_filing_id = source.get("source_raw_filing_id")
+
+        if source_raw_filing_id is None:
+            continue
+
+        source_stmt = insert(
+            FinancialStatementVersionSource
+        ).values(
+            version_id=version_id,
+            source_raw_filing_id=source_raw_filing_id,
+            component=source["component"],
+            source_role=source["source_role"],
+            derivation_method=source["derivation_method"],
+        )
+
+        db.execute(
+            source_stmt.on_conflict_do_nothing(
+                constraint="uq_financial_statement_version_source"
+            )
+        )
+
 def save_financial_statements(
     rows: list[dict],
 ) -> int:
@@ -1163,6 +1476,8 @@ def save_financial_statements(
             )
 
             db.execute(stmt)
+
+            _save_financial_statement_version(db, row)
 
             written += 1
 
@@ -2567,6 +2882,9 @@ def process_cached_financial_filings(
                         "audit_status": raw_filing.audit_status,
                         "xbrl_url": raw_filing.xbrl_url,
                         "source_reference": raw_filing.source_reference,
+                        "broadcast_datetime": raw_filing.broadcast_datetime,
+                        "revised_datetime": raw_filing.revised_datetime,
+                        "revision_remarks": raw_filing.revision_remarks,
                         "raw_relative_path": raw_filing.raw_relative_path,
                     }
                 )
@@ -2603,10 +2921,10 @@ def process_cached_financial_filings(
                     details_url=None,
                     xbrl_url=raw_filing["xbrl_url"],
                     ixbrl_url=None,
-                    broadcast_datetime=None,
-                    revised_datetime=None,
-                    revision_remarks=None,
                     source_reference=raw_filing["source_reference"],
+                    broadcast_datetime=raw_filing["broadcast_datetime"],
+                    revised_datetime=raw_filing["revised_datetime"],
+                    revision_remarks=raw_filing["revision_remarks"],
                     raw={},
                 )
 
@@ -2625,6 +2943,8 @@ def process_cached_financial_filings(
                     statement["company_id"] = (
                         raw_filing["company_id"]
                     )
+                    statement["_raw_filing_id"] = raw_filing["id"]
+                    _capture_reported_values(statement)
 
                 all_statements.extend(statements)
                 successful_ids.append(raw_filing["id"])

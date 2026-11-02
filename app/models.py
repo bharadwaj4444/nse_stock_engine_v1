@@ -16,6 +16,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import JSONB
 
 class Base(DeclarativeBase):
     pass
@@ -212,6 +213,148 @@ class FinancialStatement(Base):
     source_url: Mapped[str | None] = mapped_column(
         Text
     )
+
+
+class FinancialStatementVersion(Base):
+    __tablename__ = "financial_statement_versions"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "raw_filing_id",
+            "period_type",
+            "period_end",
+            "statement_scope",
+            "submission_type",
+            name="uq_financial_statement_version_identity",
+        ),
+        Index(
+            "ix_financial_statement_versions_company_period",
+            "company_id",
+            "period_end",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    raw_filing_id: Mapped[int] = mapped_column(
+        ForeignKey("financial_raw_filings.id"),
+        nullable=False,
+    )
+
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id"),
+        nullable=False,
+    )
+
+    period_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+    )
+
+    period_end: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    filing_date: Mapped[date | None] = mapped_column(Date)
+
+    # Income statement
+    revenue: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+    ebitda: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+    ebit: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+    profit_before_tax: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+    net_income: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+    eps: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+
+    # Balance sheet
+    total_assets: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+    total_equity: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+    total_debt: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+    cash_and_equivalents: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+
+    # Cash flow
+    operating_cash_flow: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+    capital_expenditure: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+    free_cash_flow: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+
+    # Filing metadata
+    source: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_reference: Mapped[str | None] = mapped_column(Text)
+    statement_scope: Mapped[str] = mapped_column(String(20), nullable=False)
+    submission_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    audit_status: Mapped[str | None] = mapped_column(String(20))
+    reporting_standard: Mapped[str | None] = mapped_column(String(30))
+    source_url: Mapped[str | None] = mapped_column(Text)
+
+    # Original parser output, before quarterly derivation
+    reported_values: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class FinancialStatementVersionSource(Base):
+    __tablename__ = "financial_statement_version_sources"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "version_id",
+            "source_raw_filing_id",
+            "component",
+            "source_role",
+            name="uq_financial_statement_version_source",
+        ),
+        Index(
+            "ix_financial_statement_version_sources_raw_filing",
+            "source_raw_filing_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    version_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "financial_statement_versions.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+
+    source_raw_filing_id: Mapped[int] = mapped_column(
+        ForeignKey("financial_raw_filings.id"),
+        nullable=False,
+    )
+
+    component: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+    )
+
+    source_role: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+    )
+
+    derivation_method: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+    )
+
 
 class ShareCapital(Base):
     __tablename__ = "share_capital"
@@ -979,6 +1122,18 @@ class FinancialRawFiling(Base):
 
     source_reference: Mapped[str | None] = mapped_column(
         String(100)
+    )
+
+    broadcast_datetime: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+    revised_datetime: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+    revision_remarks: Mapped[str | None] = mapped_column(
+        Text
     )
 
     xbrl_url: Mapped[str | None] = mapped_column(
