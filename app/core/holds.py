@@ -37,6 +37,11 @@ def decide_hold(
     hold.
     """
 
+    if hold_duration_days < 1:
+        raise ValueError(
+            f"hold_duration_days must be >= 1, got {hold_duration_days}"
+        )
+
     red_green = red_green_label(score)
 
     if score is None:
@@ -61,6 +66,19 @@ def decide_hold(
 
     # Green score: the engine decides hold vs sell.
     hold_until = trade_date + timedelta(days=hold_duration_days)
+
+    if sell_target_price is not None and close_price is None:
+        return HoldDecision(
+            company_id=company_id,
+            trade_date=trade_date,
+            action=HOLD_ACTION_PENDING,
+            score=score,
+            red_green=RED_GREEN_GREEN,
+            action_reason="missing_close_price",
+            hold_until=hold_until,
+            sell_target_price=sell_target_price,
+            sell_target_date=sell_target_date,
+        )
 
     if sell_target_price is not None and close_price is not None:
         if close_price >= sell_target_price:

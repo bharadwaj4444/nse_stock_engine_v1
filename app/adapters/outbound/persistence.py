@@ -199,6 +199,202 @@ class RecommendationPersistenceAdapter(
 
         self.session.commit()
 
+    def _map_hold_decision(self, row) -> HoldDecision:
+        return HoldDecision(
+            company_id=int(row["company_id"]),
+            trade_date=row["trade_date"],
+            action=row["action"],
+            score=float(row["score"]) if row["score"] is not None else None,
+            red_green=row["red_green"],
+            action_reason=row["action_reason"],
+            hold_until=row["hold_until"],
+            sell_target_price=(
+                float(row["sell_target_price"])
+                if row["sell_target_price"] is not None
+                else None
+            ),
+            sell_target_date=row["sell_target_date"],
+            expected_return=(
+                float(row["expected_return"])
+                if row["expected_return"] is not None
+                else None
+            ),
+        )
+
+    @staticmethod
+    def _map_outcome(row) -> Outcome:
+        return Outcome(
+            company_id=int(row["company_id"]),
+            trade_date=row["trade_date"],
+            expected_return=(
+                float(row["expected_return"])
+                if row["expected_return"] is not None
+                else None
+            ),
+            actual_return=(
+                float(row["actual_return"])
+                if row["actual_return"] is not None
+                else None
+            ),
+            deviation=(
+                float(row["deviation"])
+                if row["deviation"] is not None
+                else None
+            ),
+            status=row["status"],
+        )
+
+    @staticmethod
+    def _map_override(row) -> Override:
+        return Override(
+            company_id=int(row["company_id"]),
+            trade_date=row["trade_date"],
+            source=row["source"],
+            sentiment=row["sentiment"],
+            original_score=(
+                float(row["original_score"])
+                if row["original_score"] is not None
+                else None
+            ),
+            adjusted_score=(
+                float(row["adjusted_score"])
+                if row["adjusted_score"] is not None
+                else None
+            ),
+            adjustment=(
+                float(row["adjustment"])
+                if row["adjustment"] is not None
+                else 0.0
+            ),
+            significance_status=row["significance_status"],
+            applied=bool(row["applied"]),
+        )
+
+    def get_latest_hold_decision(
+        self, company_id: int, before_date: date
+    ) -> HoldDecision | None:
+        sql = text(
+            """
+            SELECT
+                company_id,
+                trade_date,
+                action,
+                score,
+                red_green,
+                action_reason,
+                hold_until,
+                sell_target_price,
+                sell_target_date,
+                expected_return
+            FROM hold_decisions
+            WHERE company_id = :company_id
+              AND trade_date < :before_date
+            ORDER BY trade_date DESC
+            LIMIT 1
+            """
+        )
+
+        row = (
+            self.session.execute(
+                sql,
+                {
+                    "company_id": company_id,
+                    "before_date": before_date,
+                },
+            )
+            .mappings()
+            .first()
+        )
+
+        return self._map_hold_decision(row) if row is not None else None
+
+    def get_outcome(
+        self, company_id: int, trade_date: date
+    ) -> Outcome | None:
+        sql = text(
+            """
+            SELECT
+                company_id,
+                trade_date,
+                expected_return,
+                actual_return,
+                deviation,
+                status
+            FROM outcomes
+            WHERE company_id = :company_id
+              AND trade_date = :trade_date
+            """
+        )
+
+        row = (
+            self.session.execute(
+                sql,
+                {
+                    "company_id": company_id,
+                    "trade_date": trade_date,
+                },
+            )
+            .mappings()
+            .first()
+        )
+
+        return self._map_outcome(row) if row is not None else None
+
+    def get_pending_outcomes(self) -> list[Outcome]:
+        sql = text(
+            """
+            SELECT
+                company_id,
+                trade_date,
+                expected_return,
+                actual_return,
+                deviation,
+                status
+            FROM outcomes
+            WHERE status = 'pending'
+            ORDER BY trade_date
+            """
+        )
+
+        rows = (
+            self.session.execute(sql)
+            .mappings()
+            .all()
+        )
+
+        return [self._map_outcome(row) for row in rows]
+
+    def get_applied_overrides(self, trade_date: date) -> list[Override]:
+        sql = text(
+            """
+            SELECT
+                company_id,
+                trade_date,
+                source,
+                sentiment,
+                original_score,
+                adjusted_score,
+                adjustment,
+                significance_status,
+                applied
+            FROM overrides
+            WHERE applied
+              AND trade_date <= :trade_date
+            ORDER BY trade_date
+            """
+        )
+
+        rows = (
+            self.session.execute(
+                sql,
+                {"trade_date": trade_date},
+            )
+            .mappings()
+            .all()
+        )
+
+        return [self._map_override(row) for row in rows]
+
     def get_hold_decisions(self, trade_date: date) -> list[HoldDecision]:
         sql = text(
             """
@@ -226,29 +422,7 @@ class RecommendationPersistenceAdapter(
             .all()
         )
 
-        return [
-            HoldDecision(
-                company_id=int(row["company_id"]),
-                trade_date=row["trade_date"],
-                action=row["action"],
-                score=float(row["score"]) if row["score"] is not None else None,
-                red_green=row["red_green"],
-                action_reason=row["action_reason"],
-                hold_until=row["hold_until"],
-                sell_target_price=(
-                    float(row["sell_target_price"])
-                    if row["sell_target_price"] is not None
-                    else None
-                ),
-                sell_target_date=row["sell_target_date"],
-                expected_return=(
-                    float(row["expected_return"])
-                    if row["expected_return"] is not None
-                    else None
-                ),
-            )
-            for row in rows
-        ]
+        return [self._map_hold_decision(row) for row in rows]
 
     def save_outcome(self, outcome: Outcome) -> None:
         self.session.execute(

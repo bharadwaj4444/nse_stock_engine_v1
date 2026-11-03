@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.core.deciles import decile_for_rank
 from app.core.types import (
     NEWS_SENTIMENT_NEGATIVE,
     NEWS_SENTIMENT_POSITIVE,
@@ -17,24 +18,47 @@ def assess_significance(
     sentiment: str,
     score_adjustment: float | None,
     backtest_stats: list[dict] | None = None,
+    overall_rank: int | None = None,
+    overall_percentile: float | None = None,
 ) -> str:
     """
     Backtrack a news override to verify the significance of the news type.
 
     V1 rule: a sentiment override is only actionable when it carries a
-    meaningful score adjustment and the historical backtest evidence
-    supports the observed sample size.
+    meaningful score adjustment and the backtest evidence for the
+    decile containing the instrument meets the observation floor.
+
+    Note: the store carries no news-type-specific history, so decile-level
+    evidence for the instrument's own cohort is the strongest backtest
+    signal available. Summing all deciles' observations would accept
+    ten unrelated datapoints as confirmation.
     """
 
     if sentiment not in (NEWS_SENTIMENT_POSITIVE, NEWS_SENTIMENT_NEGATIVE):
         return "rejected"
 
-    if score_adjustment is None or abs(score_adjustment) < MIN_OVERRIDE_SCORE_ADJUSTMENT:
+    if score_adjustment is None or abs(score_adjustment) <= MIN_OVERRIDE_SCORE_ADJUSTMENT:
         return "rejected"
 
-    observations = sum(
-        int(row.get("observations") or 0) for row in (backtest_stats or [])
-    )
+    stats_by_decile: dict[int, dict] = {}
+
+    for row in backtest_stats or []:
+        try:
+            stats_by_decile[int(row.get("decile") or 0)] = row
+        except (TypeError, ValueError):
+            continue
+
+    decile = decile_for_rank(overall_rank, overall_percentile)
+
+    if decile is None:
+        return "rejected"
+
+    row = stats_by_decile.get(decile)
+
+    try:
+        observations = int(row.get("observations") or 0) if row else 0
+    except (TypeError, ValueError):
+        observations = 0
 
     if observations < MIN_OVERRIDE_SIGNIFICANCE_OBSERVATIONS:
         return "rejected"
@@ -94,15 +118,21 @@ def build_override(
         sentiment=sentiment,
         score_adjustment=score_adjustment,
         backtest_stats=backtest_stats,
+        overall_rank=scored.overall_rank,
+        overall_percentile=scored.overall_percentile,
     )
 
     original_score = scored.score
 
-    applied = significance_status == "confirmed"
+    applied = (
+        significance_status == "confirmed"
+        and original_score is not None
+        and score_adjustment is not None
+    )
 
     adjusted_score = (
         apply_override(scored, score_adjustment).score
-        if applied and score_adjustment is not None
+        if applied
         else original_score
     )
 

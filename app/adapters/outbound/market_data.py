@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.ports.outbound import MarketDataPort
+from app.core.horizons import horizon_bucket
 
 
 class MarketDataAdapter(MarketDataPort):
@@ -40,9 +41,7 @@ class MarketDataAdapter(MarketDataPort):
         trade_date: date,
         horizon_days: int,
     ) -> float | None:
-        bucket_days = min(horizon_days, 5) if horizon_days <= 5 else (
-            min(horizon_days, 20) if horizon_days <= 20 else 60
-        )
+        bucket_days = horizon_bucket(horizon_days)
 
         column = (
             f"forward_{bucket_days}d_return"

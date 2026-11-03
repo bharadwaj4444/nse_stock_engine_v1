@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.ports.outbound import BacktestPort
@@ -19,11 +18,10 @@ class BacktestAdapter(BacktestPort):
     ) -> list[dict]:
         from app.backtest import run_decile_backtest
 
-        with self.session.begin():
-            rows = run_decile_backtest(
-                start_date=start_date,
-                end_date=end_date,
-                session=self.session,
-            )
+        rows = run_decile_backtest(
+            start_date=start_date,
+            end_date=end_date,
+            session=self.session,
+        )
 
         return [dict(row) for row in rows]

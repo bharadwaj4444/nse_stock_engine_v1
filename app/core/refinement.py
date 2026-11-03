@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.core.types import ScoredInstrument
+from app.feature_scores import red_green_label
 
 
 CATEGORY_WEIGHTS = {
@@ -16,6 +17,10 @@ CATEGORY_ORDER = (
     "leverage",
     "valuation",
 )
+
+
+def _clamp_score(value: float) -> float:
+    return max(0.0, min(100.0, value))
 
 
 def _category_score(
@@ -92,7 +97,7 @@ def refine(
     for category, delta in attribution.items():
         current = _category_score(scored, category)
         adjusted_scores[category] = (
-            current + delta if current is not None else current
+            _clamp_score(current + delta) if current is not None else current
         )
 
     valid = [
@@ -114,8 +119,8 @@ def refine(
             profitability_score=scored.profitability_score,
             leverage_score=scored.leverage_score,
             valuation_score=scored.valuation_score,
-            overall_rank=scored.overall_rank,
-            overall_percentile=scored.overall_percentile,
+            overall_rank=None,
+            overall_percentile=None,
             valid_feature_count=scored.valid_feature_count,
             valid_category_count=scored.valid_category_count,
         )
@@ -125,20 +130,20 @@ def refine(
         for category in valid
     )
 
-    overall_score = weighted_sum / total_weight
+    overall_score = _clamp_score(weighted_sum / total_weight)
 
     refined = ScoredInstrument(
         company_id=scored.company_id,
         trade_date=scored.trade_date,
         statement_scope=scored.statement_scope,
         score=overall_score,
-        red_green=scored.red_green,
+        red_green=red_green_label(overall_score),
         momentum_score=adjusted_scores["momentum"],
         profitability_score=adjusted_scores["profitability"],
         leverage_score=adjusted_scores["leverage"],
         valuation_score=adjusted_scores["valuation"],
-        overall_rank=scored.overall_rank,
-        overall_percentile=scored.overall_percentile,
+        overall_rank=None,
+        overall_percentile=None,
         valid_feature_count=scored.valid_feature_count,
         valid_category_count=scored.valid_category_count,
     )

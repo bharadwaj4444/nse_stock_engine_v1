@@ -52,7 +52,7 @@ def json_value(value):
         return value.isoformat()
 
     if isinstance(value, Decimal):
-        return float(value)
+        return str(value)
 
     if isinstance(value, dict):
         return {

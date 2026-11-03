@@ -19,9 +19,12 @@ def resolve_outcome(
     actual observed forward return over the hold horizon.
     """
 
+    expected = None if expected_return is None else float(expected_return)
+    actual = None if actual_return is None else float(actual_return)
+
     deviation = (
-        expected_return - actual_return
-        if expected_return is not None and actual_return is not None
+        expected - actual
+        if expected is not None and actual is not None
         else None
     )
 

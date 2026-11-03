@@ -42,18 +42,30 @@ class FakeRankingStore:
     def get_hold_decisions(self, trade_date):
         return []
 
+    def get_latest_hold_decision(self, company_id, before_date):
+        return None
+
     def save_outcome(self, outcome):
         self.saved_outcomes.append(outcome)
 
+    def get_outcome(self, company_id, trade_date):
+        return None
+
+    def get_pending_outcomes(self):
+        return []
+
     def save_override(self, override):
         self.saved_overrides.append(override)
+
+    def get_applied_overrides(self, trade_date):
+        return []
 
 
 class FakeMarketData:
     def get_close_price(self, company_id, trade_date):
         return 100.0
 
-    def get_forward_return(self, company_id, trade_date, horizon_days=None, hold_duration_days=None):
+    def get_forward_return(self, company_id, trade_date, horizon_days):
         return 0.01
 
 
@@ -238,6 +250,8 @@ def test_news_override_significance_requires_backtest_support():
             sentiment="positive",
             score_adjustment=5.0,
             backtest_stats=[{"decile": 1, "observations": 20, "avg_5d": 0.05}],
+            overall_rank=1,
+            overall_percentile=0.9,
         )
         == "confirmed"
     )
@@ -247,6 +261,8 @@ def test_news_override_significance_requires_backtest_support():
             sentiment="neutral",
             score_adjustment=5.0,
             backtest_stats=[{"decile": 1, "observations": 20, "avg_5d": 0.05}],
+            overall_rank=1,
+            overall_percentile=0.9,
         )
         == "rejected"
     )
@@ -256,6 +272,50 @@ def test_news_override_significance_requires_backtest_support():
             sentiment="positive",
             score_adjustment=5.0,
             backtest_stats=[],
+            overall_rank=1,
+            overall_percentile=0.9,
+        )
+        == "rejected"
+    )
+
+
+def test_news_override_significance_rejects_unset_placement():
+    assert (
+        assess_significance(
+            sentiment="positive",
+            score_adjustment=5.0,
+            backtest_stats=[{"decile": 1, "observations": 20, "avg_5d": 0.05}],
+        )
+        == "rejected"
+    )
+
+
+def test_news_override_significance_uses_instruments_own_decile():
+    # The instrument sits in decile 5; a decile 1 with healthy
+    # observations elsewhere in the universe must not confirm the signal.
+    assert (
+        assess_significance(
+            sentiment="positive",
+            score_adjustment=5.0,
+            backtest_stats=[
+                {"decile": 1, "observations": 100, "avg_5d": 0.05},
+                {"decile": 5, "observations": 2, "avg_5d": 0.05},
+            ],
+            overall_rank=45,
+            overall_percentile=0.55,
+        )
+        == "rejected"
+    )
+
+
+def test_news_override_significance_rejects_zero_adjustment():
+    assert (
+        assess_significance(
+            sentiment="positive",
+            score_adjustment=0.0,
+            backtest_stats=[{"decile": 1, "observations": 20, "avg_5d": 0.05}],
+            overall_rank=1,
+            overall_percentile=0.9,
         )
         == "rejected"
     )
